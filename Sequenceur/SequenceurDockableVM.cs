@@ -2,10 +2,14 @@ using NINA.Astrometry;
 using NINA.Astrometry.Interfaces;
 using NINA.Core.Enum;
 using NINA.Core.Model.Equipment;
+using NINA.Core.Utility;
+using NINA.Core.Utility.WindowService;
 using NINA.Equipment.Interfaces;
 using NINA.Equipment.Interfaces.Mediator;
 using NINA.Equipment.Interfaces.ViewModel;
+using NINA.Equipment.Model;
 using NINA.Image.Interfaces;
+using NINA.PlateSolving.Interfaces;
 using NINA.Profile;
 using NINA.Profile.Interfaces;
 using NINA.Sequencer.Conditions;
@@ -13,6 +17,7 @@ using NINA.Sequencer.Container;
 using NINA.Sequencer.Interfaces.Mediator;
 using NINA.Sequencer.SequenceItem.FilterWheel;
 using NINA.Sequencer.SequenceItem.Imaging;
+using NINA.Sequencer.SequenceItem.Platesolving;
 using NINA.Sequencer.Trigger.MeridianFlip;
 using NINA.WPF.Base.Interfaces;
 using NINA.WPF.Base.Interfaces.Mediator;
@@ -68,6 +73,10 @@ namespace ModeDebutant.Sequenceur {
         private readonly IFramingAssistantVM framingAssistantVM;
         private readonly IApplicationMediator applicationMediator;
         private readonly IPlanetariumFactory planetariumFactory;
+        private readonly IDomeMediator domeMediator;
+        private readonly IDomeFollower domeFollower;
+        private readonly IPlateSolverFactory plateSolverFactory;
+        private readonly IWindowServiceFactory windowServiceFactory;
 
         // Coffre à réglages fourni par N.I.N.A. : mémorise nos options
         // dans le profil actif, d'une session à l'autre
@@ -75,8 +84,9 @@ namespace ModeDebutant.Sequenceur {
 
         // Les phases possibles de notre écran. AttenteDarks = les photos
         // sont finies, on attend que l'utilisateur couvre le télescope
-        // avant d'enchaîner les darks.
-        private enum Phase { Preparation, EnCours, AttenteDarks, Terminee }
+        // avant d'enchaîner les darks. Reglage = mise au point à la main
+        // (photos en boucle, HFR en direct).
+        private enum Phase { Preparation, Reglage, EnCours, AttenteDarks, Terminee }
         private Phase phase = Phase.Preparation;
 
         // La boucle « répéter N fois » de la séquence en cours : on la garde
@@ -126,7 +136,11 @@ namespace ModeDebutant.Sequenceur {
             INighttimeCalculator nighttimeCalculator,
             IFramingAssistantVM framingAssistantVM,
             IApplicationMediator applicationMediator,
-            IPlanetariumFactory planetariumFactory) : base(profileService) {
+            IPlanetariumFactory planetariumFactory,
+            IDomeMediator domeMediator,
+            IDomeFollower domeFollower,
+            IPlateSolverFactory plateSolverFactory,
+            IWindowServiceFactory windowServiceFactory) : base(profileService) {
             this.profileService = profileService;
             this.sequenceMediator = sequenceMediator;
             this.cameraMediator = cameraMediator;
@@ -143,6 +157,10 @@ namespace ModeDebutant.Sequenceur {
             this.framingAssistantVM = framingAssistantVM;
             this.applicationMediator = applicationMediator;
             this.planetariumFactory = planetariumFactory;
+            this.domeMediator = domeMediator;
+            this.domeFollower = domeFollower;
+            this.plateSolverFactory = plateSolverFactory;
+            this.windowServiceFactory = windowServiceFactory;
 
             reglages = new PluginOptionsAccessor(profileService, Guid.Parse("3d87e151-d363-4708-bce9-5db3356abccc"));
 
@@ -172,6 +190,8 @@ namespace ModeDebutant.Sequenceur {
             OuvrirBilanCommand = new CommandeSimple2(OuvrirBilan);
             GenererBilanCommand = new CommandeSimple2(GenererBilanMaintenant);
             NouvelleSessionCommand = new CommandeSimple2(NouvelleSession);
+            CommencerReglageCommand = new CommandeAsync(CommencerReglage);
+            ArreterReglageCommand = new CommandeSimple2(ArreterReglage);
             TesterAlerteCommand = new CommandeAsync(TesterAlerte);
             ProposerCiblesCommand = new CommandeAsync(ProposerCibles);
             ActualiserMeteoCommand = new CommandeAsync(ChargerMeteo);
@@ -597,6 +617,158 @@ namespace ModeDebutant.Sequenceur {
         }
 
         // ------------------------------------------------------------------
+        // Aide à la mise au point à la main (focuser non motorisé)
+        //
+        // Le mode « réglage » : photos courtes en boucle, netteté (HFR)
+        // affichée en énorme avec une flèche de tendance. Vous tournez la
+        // molette entre deux photos, l'écran dit si vous améliorez.
+        // ------------------------------------------------------------------
+
+        private CancellationTokenSource reglageAnnulation;
+        private double dernierHfrReglage = double.NaN;
+        private double meilleurHfrReglage = double.NaN;
+
+        /// <summary>Pose des photos de réglage, en secondes (défaut 2).</summary>
+        public string PoseReglageTexte {
+            get => reglages.GetValueString(nameof(PoseReglageTexte), "2");
+            set { reglages.SetValueString(nameof(PoseReglageTexte), value); RaisePropertyChanged(); }
+        }
+
+        /// <summary>Le HFR en énorme (« 2,41 ») — petit = net.</summary>
+        public string HfrGeantTexte { get; private set; } = "—";
+
+        /// <summary>La flèche de tendance : ↘ mieux, ↗ moins bien, → stable.</summary>
+        public string TendanceFleche { get; private set; } = "";
+
+        /// <summary>La consigne : « continuez dans ce sens » / « inversez ».</summary>
+        public string TendanceTexte { get; private set; } = "";
+
+        public Brush CouleurTendance { get; private set; } = BrosseVert;
+
+        /// <summary>Étoiles + record de la session de réglage.</summary>
+        public string ReglageInfoTexte { get; private set; } = "";
+
+        public ICommand CommencerReglageCommand { get; }
+        public ICommand ArreterReglageCommand { get; }
+
+        private async Task CommencerReglage() {
+            if (phase != Phase.Preparation) { return; }
+            if (!cameraMediator.GetInfo().Connected) {
+                Avertissement = "⚠ La caméra n'est pas connectée. Allez dans l'onglet Équipement > Caméra, connectez-la, puis revenez.";
+                RaisePropertyChanged(nameof(Avertissement));
+                return;
+            }
+            if (sequenceMediator.IsAdvancedSequenceRunning()) {
+                Avertissement = "⚠ Une séquence est en cours : arrêtez-la avant de régler la mise au point.";
+                RaisePropertyChanged(nameof(Avertissement));
+                return;
+            }
+
+            Avertissement = "";
+            dernierHfrReglage = double.NaN;
+            meilleurHfrReglage = double.NaN;
+            HfrGeantTexte = "—";
+            TendanceFleche = "";
+            TendanceTexte = "Première photo en cours…";
+            CouleurTendance = BrosseVert;
+            ReglageInfoTexte = "";
+            DerniereImage = null;
+            phase = Phase.Reglage;
+            NotifierToutChange();
+
+            reglageAnnulation = new CancellationTokenSource();
+            try {
+                while (!reglageAnnulation.IsCancellationRequested) {
+                    double pose = DoubleOuDefaut(PoseReglageTexte, 2.0);
+                    // Une photo « instantanée » (SNAPSHOT = pas enregistrée
+                    // dans les fichiers de la nuit), binning 1x1
+                    var capture = new CaptureSequence(pose, CaptureSequence.ImageTypes.SNAPSHOT,
+                        null, new BinningMode(1, 1), 1);
+                    var rendu = await imagingMediator.CaptureAndPrepareImage(capture,
+                        new PrepareImageParameters(true, false), reglageAnnulation.Token, null);
+                    if (reglageAnnulation.IsCancellationRequested) { break; }
+                    await AnalyserPhotoReglage(rendu);
+                }
+            } catch (OperationCanceledException) {
+                // Arrêt demandé : tout va bien
+            } catch (Exception ex) {
+                Avertissement = "⚠ Le réglage s'est interrompu : " + ex.Message;
+            } finally {
+                reglageAnnulation?.Dispose();
+                reglageAnnulation = null;
+            }
+
+            phase = Phase.Preparation;
+            NotifierToutChange();
+        }
+
+        private async Task AnalyserPhotoReglage(IRenderedImage rendu) {
+            if (rendu == null) { return; }
+            try {
+                var analyse = rendu.RawImageData?.StarDetectionAnalysis;
+                if (analyse == null || analyse.DetectedStars <= 0) {
+                    var renduAnalyse = await rendu.DetectStars(false, StarSensitivityEnum.Normal, NoiseReductionEnum.None);
+                    analyse = renduAnalyse?.RawImageData?.StarDetectionAnalysis;
+                }
+
+                int etoiles = analyse?.DetectedStars ?? 0;
+                double hfr = analyse?.HFR ?? double.NaN;
+
+                if (etoiles <= 0 || double.IsNaN(hfr) || hfr <= 0) {
+                    HfrGeantTexte = "—";
+                    TendanceFleche = "❓";
+                    TendanceTexte = "Aucune étoile détectée : visez une étoile bien visible, ou allongez un peu la pose.";
+                    CouleurTendance = BrosseOrange;
+                    ReglageInfoTexte = "";
+                } else {
+                    HfrGeantTexte = hfr.ToString("0.00");
+
+                    // Le record de la session (le plus PETIT HFR atteint)
+                    if (double.IsNaN(meilleurHfrReglage) || hfr < meilleurHfrReglage) { meilleurHfrReglage = hfr; }
+
+                    // La tendance par rapport à la photo précédente
+                    // (marge de 3 % : en dessous, c'est du bruit de mesure)
+                    if (double.IsNaN(dernierHfrReglage)) {
+                        TendanceFleche = "→";
+                        TendanceTexte = "Tournez LÉGÈREMENT la molette de mise au point, puis attendez la photo suivante.";
+                        CouleurTendance = BrosseVert;
+                    } else if (hfr < dernierHfrReglage * 0.97) {
+                        TendanceFleche = "↘";
+                        TendanceTexte = "Ça s'améliore — continuez DANS LE MÊME SENS, par petites touches.";
+                        CouleurTendance = BrosseVert;
+                    } else if (hfr > dernierHfrReglage * 1.03) {
+                        TendanceFleche = "↗";
+                        TendanceTexte = "Ça se dégrade — tournez dans L'AUTRE SENS.";
+                        CouleurTendance = BrosseOrange;
+                    } else {
+                        TendanceFleche = "→";
+                        TendanceTexte = hfr <= meilleurHfrReglage * 1.05
+                            ? "Stable et proche de votre record : c'est très bon, vous pouvez arrêter là !"
+                            : "Stable. Tournez un peu la molette pour chercher mieux.";
+                        CouleurTendance = BrosseVert;
+                    }
+                    dernierHfrReglage = hfr;
+
+                    ReglageInfoTexte = "⭐ " + etoiles + (etoiles > 1 ? " étoiles" : " étoile")
+                        + "   ·   record de la session : " + meilleurHfrReglage.ToString("0.00") + " (petit = net)";
+                }
+
+                RaisePropertyChanged(nameof(HfrGeantTexte));
+                RaisePropertyChanged(nameof(TendanceFleche));
+                RaisePropertyChanged(nameof(TendanceTexte));
+                RaisePropertyChanged(nameof(CouleurTendance));
+                RaisePropertyChanged(nameof(ReglageInfoTexte));
+            } catch {
+                // L'analyse d'une photo de réglage peut échouer sans gravité :
+                // la suivante arrive dans quelques secondes
+            }
+        }
+
+        private void ArreterReglage() {
+            try { reglageAnnulation?.Cancel(); } catch { }
+        }
+
+        // ------------------------------------------------------------------
         // Le cadrage : votre champ de vision comparé à la taille de l'objet
         // ------------------------------------------------------------------
 
@@ -729,6 +901,14 @@ namespace ModeDebutant.Sequenceur {
         public bool FlipActif {
             get => reglages.GetValueBoolean(nameof(FlipActif), true);
             set { reglages.SetValueBoolean(nameof(FlipActif), value); RaisePropertyChanged(); }
+        }
+
+        /// <summary>Recaler la cible pile au centre avant la première photo
+        /// (plate-solving + correction de la monture, répété jusqu'à être
+        /// dans la tolérance du profil).</summary>
+        public bool CentrageActif {
+            get => reglages.GetValueBoolean(nameof(CentrageActif), true);
+            set { reglages.SetValueBoolean(nameof(CentrageActif), value); RaisePropertyChanged(); }
         }
 
         /// <summary>Proposer les darks à la fin de la série de photos.</summary>
@@ -883,6 +1063,18 @@ namespace ModeDebutant.Sequenceur {
                 if (monture.Connected) {
                     conteneurCible.Target.InputCoordinates.Coordinates = telescopeMediator.GetCurrentPosition();
                 }
+            }
+
+            // Centrage précis : l'instruction officielle « Center » de
+            // N.I.N.A. (photo -> plate-solve -> recalage de la monture,
+            // répété jusqu'à la tolérance du profil). Elle lit la cible du
+            // conteneur parent. Seulement si une cible est choisie ET que la
+            // monture obéit — sinon GoTo simple, comme avant.
+            if (CentrageActif && CibleChoisie != null && monture.Connected) {
+                conteneurCible.Add(new Center(profileService, telescopeMediator, imagingMediator,
+                    filterWheelMediator, guiderMediator, domeMediator, domeFollower,
+                    plateSolverFactory, windowServiceFactory));
+                notes += "Centrage précis au départ · ";
             }
 
             // L'instruction « pose intelligente » de N.I.N.A. : une boucle
@@ -1441,7 +1633,9 @@ namespace ModeDebutant.Sequenceur {
         public ImageSource DerniereImage { get; private set; }
 
         private void QuandImagePrete(object sender, ImagePreparedEventArgs e) {
-            if (phase != Phase.EnCours) { return; }
+            // Vignette pendant la série ET pendant le réglage de mise au
+            // point (le réglage fait sa propre analyse, voir plus bas)
+            if (phase != Phase.EnCours && phase != Phase.Reglage) { return; }
             var image = e?.RenderedImage?.Image;
             if (image == null) { return; }
 
@@ -1454,8 +1648,9 @@ namespace ModeDebutant.Sequenceur {
             RaisePropertyChanged(nameof(DerniereImage));
 
             // Un dark est tout noir : compter ses étoiles n'aurait aucun sens
-            // (le verdict hurlerait « aucune étoile ! » à chaque image)
-            if (!darksEnCours) {
+            // (le verdict hurlerait « aucune étoile ! » à chaque image).
+            // Et pendant le réglage, la boucle de mise au point analyse déjà.
+            if (phase == Phase.EnCours && !darksEnCours) {
                 AnalyserQualite(e.RenderedImage);
             }
         }
@@ -1598,6 +1793,7 @@ namespace ModeDebutant.Sequenceur {
         // ------------------------------------------------------------------
 
         public bool EnPreparation => phase == Phase.Preparation;
+        public bool EnReglage => phase == Phase.Reglage;
         public bool EnCours => phase == Phase.EnCours;
         public bool EnAttenteDarks => phase == Phase.AttenteDarks;
         public bool EstTerminee => phase == Phase.Terminee;
