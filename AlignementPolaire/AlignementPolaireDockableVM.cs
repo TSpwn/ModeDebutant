@@ -101,6 +101,9 @@ namespace ModeDebutant.AlignementPolaire {
             OuvrirModificationPositionCommand = new CommandeSimple(OuvrirModificationPosition);
             EnregistrerPositionCommand = new CommandeSimple(EnregistrerPosition);
             LocaliserParInternetCommand = new CommandeSimple(LocaliserParInternet);
+            OuvrirModificationMaterielCommand = new CommandeSimple(OuvrirModificationMateriel);
+            EnregistrerMaterielCommand = new CommandeSimple(EnregistrerMateriel);
+            RafraichirMateriel();
 
             // La position du lieu d'observation : affichée en clair, car tout
             // en dépend (consignes nord/sud, calculs de TPPA). Si elle change
@@ -327,6 +330,126 @@ namespace ModeDebutant.AlignementPolaire {
                 MessagePosition = "⚠ Localisation impossible (pas d'Internet ? service indisponible ?). Utilisez « Modifier à la main ».";
             }
             RaisePropertyChanged(nameof(MessagePosition));
+        }
+
+        // ------------------------------------------------------------------
+        // Votre matériel : focale, diamètre, pixels de la caméra
+        // Ces trois chiffres conditionnent le cadrage (champ de vision) et
+        // les suggestions de cibles du séquenceur. N.I.N.A. les cache dans
+        // ses options : ici, ils sont lisibles et modifiables directement.
+        // (N.I.N.A. stocke focale + rapport F/D ; le diamètre s'en déduit.)
+        // ------------------------------------------------------------------
+
+        /// <summary>« Focale 400 mm · Diamètre 72 mm · F/5,6 · pixels 3,76 µm »</summary>
+        public string MaterielTexte { get; private set; } = "";
+
+        /// <summary>« → 1,9″ par pixel · champ 132′ × 88′ » (si calculable).</summary>
+        public string CadrageTexte { get; private set; } = "";
+
+        /// <summary>true = focale absente : cadrage et suggestions aveugles.</summary>
+        public bool MaterielNonRegle { get; private set; }
+
+        public bool ModificationMaterielOuverte { get; private set; }
+
+        public string FocaleSaisie { get; set; } = "";
+        public string DiametreSaisie { get; set; } = "";
+        public string PixelSaisie { get; set; } = "";
+
+        public string MessageMateriel { get; private set; } = "";
+
+        public ICommand OuvrirModificationMaterielCommand { get; }
+        public ICommand EnregistrerMaterielCommand { get; }
+
+        private void RafraichirMateriel() {
+            double focale = profileService.ActiveProfile.TelescopeSettings.FocalLength;
+            double rapportFD = profileService.ActiveProfile.TelescopeSettings.FocalRatio;
+            double pixel = profileService.ActiveProfile.CameraSettings.PixelSize;
+
+            MaterielNonRegle = focale <= 0;
+
+            if (focale > 0) {
+                MaterielTexte = "Focale " + focale.ToString("0") + " mm";
+                if (rapportFD > 0) {
+                    MaterielTexte += "  ·  Diamètre " + (focale / rapportFD).ToString("0") + " mm"
+                        + "  ·  F/" + rapportFD.ToString("0.#");
+                }
+                if (pixel > 0) { MaterielTexte += "  ·  pixels " + pixel.ToString("0.##") + " µm"; }
+            } else {
+                MaterielTexte = "Focale non renseignée";
+            }
+
+            // L'échantillonnage et le champ, si tout est connu
+            CadrageTexte = "";
+            if (focale > 0 && pixel > 0) {
+                double arcsecParPixel = 206.265 * pixel / focale;
+                CadrageTexte = "→ " + arcsecParPixel.ToString("0.0") + "″ par pixel";
+                var camera = cameraMediator.GetInfo();
+                if (camera.Connected && camera.XSize > 0 && camera.YSize > 0) {
+                    CadrageTexte += "  ·  champ " + (camera.XSize * arcsecParPixel / 60.0).ToString("0")
+                        + "′ × " + (camera.YSize * arcsecParPixel / 60.0).ToString("0") + "′";
+                } else {
+                    CadrageTexte += "  ·  connectez la caméra pour voir votre champ";
+                }
+            }
+
+            RaisePropertyChanged(nameof(MaterielTexte));
+            RaisePropertyChanged(nameof(CadrageTexte));
+            RaisePropertyChanged(nameof(MaterielNonRegle));
+        }
+
+        /// <summary>Ouvre/ferme la saisie, préremplie avec les valeurs actuelles.</summary>
+        private void OuvrirModificationMateriel() {
+            ModificationMaterielOuverte = !ModificationMaterielOuverte;
+            if (ModificationMaterielOuverte) {
+                double focale = profileService.ActiveProfile.TelescopeSettings.FocalLength;
+                double rapportFD = profileService.ActiveProfile.TelescopeSettings.FocalRatio;
+                double pixel = profileService.ActiveProfile.CameraSettings.PixelSize;
+                FocaleSaisie = focale > 0 ? focale.ToString("0", CultureInfo.InvariantCulture) : "";
+                DiametreSaisie = focale > 0 && rapportFD > 0 ? (focale / rapportFD).ToString("0", CultureInfo.InvariantCulture) : "";
+                PixelSaisie = pixel > 0 ? pixel.ToString("0.##", CultureInfo.InvariantCulture) : "";
+                MessageMateriel = "Ces chiffres sont écrits sur le tube ou l'objectif (ex : « 72/400 » = diamètre 72 mm, focale 400 mm). La taille de pixel est dans la fiche technique de la caméra (souvent remplie automatiquement à la connexion).";
+            } else {
+                MessageMateriel = "";
+            }
+            RaisePropertyChanged(nameof(ModificationMaterielOuverte));
+            RaisePropertyChanged(nameof(FocaleSaisie));
+            RaisePropertyChanged(nameof(DiametreSaisie));
+            RaisePropertyChanged(nameof(PixelSaisie));
+            RaisePropertyChanged(nameof(MessageMateriel));
+        }
+
+        /// <summary>Enregistre dans le profil N.I.N.A. (champ vide = inchangé).</summary>
+        private void EnregistrerMateriel() {
+            var focaleTexte = FocaleSaisie?.Trim().Replace(',', '.');
+            var diametreTexte = DiametreSaisie?.Trim().Replace(',', '.');
+            var pixelTexte = PixelSaisie?.Trim().Replace(',', '.');
+
+            bool focaleOk = double.TryParse(focaleTexte, NumberStyles.Float, CultureInfo.InvariantCulture, out var focale) && focale > 0 && focale < 20000;
+            bool diametreOk = double.TryParse(diametreTexte, NumberStyles.Float, CultureInfo.InvariantCulture, out var diametre) && diametre > 0 && diametre < 2000;
+            bool pixelOk = double.TryParse(pixelTexte, NumberStyles.Float, CultureInfo.InvariantCulture, out var pixel) && pixel > 0 && pixel < 100;
+
+            if (!focaleOk && !diametreOk && !pixelOk) {
+                MessageMateriel = "⚠ Aucune valeur lisible. Attendu : des nombres, ex. focale 400, diamètre 72, pixels 3,76.";
+                RaisePropertyChanged(nameof(MessageMateriel));
+                return;
+            }
+
+            if (focaleOk) { profileService.ActiveProfile.TelescopeSettings.FocalLength = focale; }
+
+            // Le diamètre est enregistré sous forme de rapport F/D (le format
+            // de N.I.N.A.) : F/D = focale ÷ diamètre
+            double focaleFinale = profileService.ActiveProfile.TelescopeSettings.FocalLength;
+            if (diametreOk && focaleFinale > 0) {
+                profileService.ActiveProfile.TelescopeSettings.FocalRatio = focaleFinale / diametre;
+            }
+
+            if (pixelOk) { profileService.ActiveProfile.CameraSettings.PixelSize = pixel; }
+
+            ModificationMaterielOuverte = false;
+            MessageMateriel = "✅ Matériel enregistré dans le profil N.I.N.A. (le cadrage et les suggestions du séquenceur en profitent).";
+            RaisePropertyChanged(nameof(ModificationMaterielOuverte));
+            RaisePropertyChanged(nameof(MessageMateriel));
+            RafraichirMateriel();
         }
 
         // ------------------------------------------------------------------
