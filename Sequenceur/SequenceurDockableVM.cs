@@ -197,6 +197,126 @@ namespace ModeDebutant.Sequenceur {
             // échec silencieux) et se recharge si la position change
             _ = ChargerMeteo();
             profileService.LocationChanged += (s, e) => _ = ChargerMeteo();
+
+            // Le tableau de bord « tout est prêt ? » se rafraîchit en continu
+            DemarrerTableauBord();
+        }
+
+        // ------------------------------------------------------------------
+        // Le tableau de bord « Tout est prêt ? »
+        // L'état du matériel et des réglages en un coup d'œil, rafraîchi en
+        // continu : plus besoin de découvrir les oublis un par un au clic.
+        // ------------------------------------------------------------------
+
+        private System.Windows.Threading.DispatcherTimer tableauBordMinuteur;
+
+        /// <summary>Les lignes d'état (une par élément vérifié).</summary>
+        public ObservableCollection<LigneEtat> EtatsMateriel { get; } = new ObservableCollection<LigneEtat>();
+
+        /// <summary>« 🚦 Tout est prêt ! » / « Il manque l'essentiel »…</summary>
+        public string TableauBordTitre { get; private set; } = "";
+
+        public Brush CouleurTableauBord { get; private set; } = BrosseVert;
+
+        private void DemarrerTableauBord() {
+            // DispatcherTimer = minuteur qui "tique" sur le fil d'interface :
+            // on peut toucher les listes affichées sans précaution
+            tableauBordMinuteur = new System.Windows.Threading.DispatcherTimer {
+                Interval = TimeSpan.FromSeconds(2)
+            };
+            tableauBordMinuteur.Tick += (s, e) => { if (phase == Phase.Preparation) { RafraichirTableauBord(); } };
+            tableauBordMinuteur.Start();
+            RafraichirTableauBord();
+        }
+
+        private void RafraichirTableauBord() {
+            var lignes = new List<LigneEtat>();
+            bool bloquant = false;   // rouge : la série ne peut pas partir
+            bool remarque = false;   // orange : ça partira, mais en mode dégradé
+
+            // 1. La caméra — indispensable
+            if (cameraMediator.GetInfo().Connected) {
+                lignes.Add(new LigneEtat("✅ Caméra connectée", BrosseVertClair));
+            } else {
+                lignes.Add(new LigneEtat("❌ Caméra non connectée — onglet Équipement > Caméra", BrosseRougeClair));
+                bloquant = true;
+            }
+
+            // 2. La monture — GoTo, centrage et méridien en dépendent
+            var monture = telescopeMediator.GetInfo();
+            if (monture.Connected && monture.AtPark) {
+                lignes.Add(new LigneEtat("⚠ Monture connectée mais PARQUÉE — bouton « Unpark » (Équipement > Monture)", BrosseOrangeClair));
+                remarque = true;
+            } else if (monture.Connected) {
+                lignes.Add(new LigneEtat("✅ Monture connectée", BrosseVertClair));
+            } else {
+                lignes.Add(new LigneEtat("⚠ Monture non connectée — pointage, centrage et méridien indisponibles", BrosseOrangeClair));
+                remarque = true;
+            }
+
+            // 3. Le guidage — seulement pour le dithering
+            if (guiderMediator.GetInfo().Connected) {
+                lignes.Add(new LigneEtat("✅ Guidage connecté — dithering possible", BrosseVertClair));
+            } else if (DitherActif) {
+                lignes.Add(new LigneEtat("⚠ Pas de guideur : le dithering sera ignoré — astuce : connectez « Direct Guider » (Équipement > Guideur)", BrosseOrangeClair));
+                remarque = true;
+            } else {
+                lignes.Add(new LigneEtat("· Guidage non connecté (dithering désactivé, rien à faire)", BrosseGriseClair));
+            }
+
+            // 4. La position — les suggestions et les calculs en dépendent
+            double lat = profileService.ActiveProfile.AstrometrySettings.Latitude;
+            double lon = profileService.ActiveProfile.AstrometrySettings.Longitude;
+            if (Math.Abs(lat) < 0.001 && Math.Abs(lon) < 0.001) {
+                lignes.Add(new LigneEtat("❌ Position non réglée (0°, 0°) — carte 📍 du panneau Alignement", BrosseRougeClair));
+                bloquant = true;
+            } else {
+                lignes.Add(new LigneEtat("✅ Position réglée (" + Math.Abs(lat).ToString("0.#") + "° " + (lat >= 0 ? "N" : "S") + ")", BrosseVertClair));
+            }
+
+            // 5. Le matériel — le cadrage en dépend
+            var champ = CalculerChampArcmin();
+            double focale = profileService.ActiveProfile.TelescopeSettings.FocalLength;
+            if (champ != null) {
+                lignes.Add(new LigneEtat("✅ Matériel renseigné — champ " + champ.Item1.ToString("0") + "′ × " + champ.Item2.ToString("0") + "′", BrosseVertClair));
+            } else if (focale > 0) {
+                lignes.Add(new LigneEtat("⚠ Focale connue (" + focale.ToString("0") + " mm) mais champ incalculable — caméra déconnectée ou taille de pixel absente", BrosseOrangeClair));
+                remarque = true;
+            } else {
+                lignes.Add(new LigneEtat("⚠ Focale non renseignée — carte 🔭 du panneau Alignement (cadrage aveugle sinon)", BrosseOrangeClair));
+                remarque = true;
+            }
+
+            // 6. Le disque des images
+            try {
+                var dossier = profileService.ActiveProfile.ImageFileSettings.FilePath;
+                if (!string.IsNullOrWhiteSpace(dossier)) {
+                    double libreGo = new System.IO.DriveInfo(System.IO.Path.GetPathRoot(dossier)).AvailableFreeSpace / 1e9;
+                    if (libreGo < 5) {
+                        lignes.Add(new LigneEtat("⚠ Disque des images presque plein : " + libreGo.ToString("0.#") + " Go libres", BrosseOrangeClair));
+                        remarque = true;
+                    } else {
+                        lignes.Add(new LigneEtat("✅ " + libreGo.ToString("0") + " Go libres pour les images", BrosseVertClair));
+                    }
+                }
+            } catch { /* lecteur réseau exotique : on n'affiche rien */ }
+
+            // Le verdict global, façon feu tricolore
+            if (bloquant) {
+                TableauBordTitre = "🚦 Pas encore prêt — réglez les lignes rouges";
+                CouleurTableauBord = BrosseRouge;
+            } else if (remarque) {
+                TableauBordTitre = "🚦 Prêt à lancer (avec les remarques ci-dessous)";
+                CouleurTableauBord = BrosseOrange;
+            } else {
+                TableauBordTitre = "🚦 Tout est prêt — bonne nuit d'étoiles !";
+                CouleurTableauBord = BrosseVert;
+            }
+
+            EtatsMateriel.Clear();
+            foreach (var ligne in lignes) { EtatsMateriel.Add(ligne); }
+            RaisePropertyChanged(nameof(TableauBordTitre));
+            RaisePropertyChanged(nameof(CouleurTableauBord));
         }
 
         // ------------------------------------------------------------------
@@ -206,9 +326,10 @@ namespace ModeDebutant.Sequenceur {
         // Les prévisions heure par heure : (heure locale, % de nuages)
         private List<Tuple<DateTime, int>> previsionsNuages;
 
-        // Premier clic sur GO avec mauvaise météo = avertissement ;
-        // second clic = on y va quand même (c'est vous le chef)
-        private bool meteoConfirmee;
+        // Premier clic sur GO avec un souci (météo, aube, cible basse,
+        // disque plein) = avertissements ; second clic = on y va quand
+        // même (c'est vous le chef)
+        private bool goConfirme;
 
         /// <summary>Résumé : « Ciel dégagé de 22 h à 2 h, nuages ensuite ».</summary>
         public string MeteoTexte { get; private set; } = "";
@@ -859,19 +980,83 @@ namespace ModeDebutant.Sequenceur {
                 return;
             }
 
-            // Météo : si des nuages épais (>= 70 %) sont prévus avant la fin
-            // de la série, on prévient UNE fois — second clic = on y va
-            // quand même (les prévisions se trompent aussi)
-            if (!meteoConfirmee && previsionsNuages != null) {
+            // Les garde-fous de la nuit : météo, aube, cible qui se couche,
+            // place sur le disque. Tout est vérifié d'un coup ; premier clic
+            // = la liste des soucis, second clic = on y va quand même.
+            if (!goConfirme) {
+                var soucis = new List<string>();
                 var finPrevue = DateTime.Now.AddSeconds(nbPhotos * (poseSecondes + MargeParPhotoSecondes));
-                var mauvaiseHeure = previsionsNuages.FirstOrDefault(
-                    p => p.Item1 >= DateTime.Now.AddMinutes(-30) && p.Item1 <= finPrevue && p.Item2 >= 70);
-                if (mauvaiseHeure != null) {
-                    Avertissement = "⚠ Météo : " + mauvaiseHeure.Item2 + " % de nuages prévus vers "
-                        + mauvaiseHeure.Item1.Hour + " h, alors que la série se terminerait vers "
-                        + finPrevue.ToString("HH\\hmm") + ". Raccourcissez la série… ou cliquez une seconde fois pour tenter quand même.";
+                double latGarde = profileService.ActiveProfile.AstrometrySettings.Latitude;
+                double lonGarde = profileService.ActiveProfile.AstrometrySettings.Longitude;
+                bool positionConnue = Math.Abs(latGarde) > 0.001 || Math.Abs(lonGarde) > 0.001;
+
+                // 1. La météo (>= 70 % de nuages avant la fin)
+                if (previsionsNuages != null) {
+                    var mauvaiseHeure = previsionsNuages.FirstOrDefault(
+                        p => p.Item1 >= DateTime.Now.AddMinutes(-30) && p.Item1 <= finPrevue && p.Item2 >= 70);
+                    if (mauvaiseHeure != null) {
+                        soucis.Add("Météo : " + mauvaiseHeure.Item2 + " % de nuages prévus vers "
+                            + mauvaiseHeure.Item1.Hour + " h (fin de série " + finPrevue.ToString("HH\\hmm") + ").");
+                    }
+                }
+
+                // 2. L'aube : où sera le Soleil à la fin de la série ?
+                // (au-dessus de -10°, le ciel est déjà trop clair pour le
+                // ciel profond — les dernières photos seraient délavées)
+                if (positionConnue) {
+                    try {
+                        var observateur = new ObserverInfo {
+                            Latitude = latGarde,
+                            Longitude = lonGarde,
+                            Elevation = profileService.ActiveProfile.AstrometrySettings.Elevation
+                        };
+                        var soleil = AstroUtil.GetMoonAndSunPosition(finPrevue, AstroUtil.GetJulianDate(finPrevue), observateur).Item2;
+                        double altitudeSoleil = new Coordinates(soleil.RA, soleil.Dec, Epoch.J2000, Coordinates.RAType.Hours)
+                            .Transform(Angle.ByDegree(latGarde), Angle.ByDegree(lonGarde), finPrevue).Altitude.Degree;
+                        if (altitudeSoleil > -10) {
+                            soucis.Add("Aube : à la fin prévue (" + finPrevue.ToString("HH\\hmm")
+                                + "), le ciel sera déjà clair — raccourcissez la série pour finir de nuit.");
+                        }
+                    } catch { /* calcul astro raté = pas d'avertissement */ }
+                }
+
+                // 3. La cible qui descend : où sera-t-elle à la fin ?
+                if (positionConnue && CibleChoisie != null) {
+                    try {
+                        double altitudeFin = CibleChoisie.Coordonnees
+                            .Transform(Angle.ByDegree(latGarde), Angle.ByDegree(lonGarde), finPrevue).Altitude.Degree;
+                        if (altitudeFin < 0) {
+                            soucis.Add("Cible : elle sera COUCHÉE avant la fin de la série (sous l'horizon à " + finPrevue.ToString("HH\\hmm") + ") ! Raccourcissez, ou choisissez une cible plus à l'est.");
+                        } else if (altitudeFin < 20) {
+                            soucis.Add("Cible : elle ne sera plus qu'à " + altitudeFin.ToString("0")
+                                + "° de haut en fin de série — si bas, les photos deviennent molles (atmosphère). Raccourcir la série serait mieux.");
+                        }
+                    } catch { }
+                }
+
+                // 4. Le disque : y a-t-il la place pour toutes ces photos ?
+                try {
+                    var dossierImages = profileService.ActiveProfile.ImageFileSettings.FilePath;
+                    var cameraInfos = cameraMediator.GetInfo();
+                    if (!string.IsNullOrWhiteSpace(dossierImages) && cameraInfos.XSize > 0 && cameraInfos.YSize > 0) {
+                        var disque = new System.IO.DriveInfo(System.IO.Path.GetPathRoot(dossierImages));
+                        int nbTotal = nbPhotos + (DarksActif ? EntierOuDefaut(NbDarksTexte, 15) : 0);
+                        // ~2 octets par pixel (FITS 16 bits, marge comprise)
+                        double besoinGo = (double)cameraInfos.XSize * cameraInfos.YSize * 2 * nbTotal / 1e9;
+                        double libreGo = disque.AvailableFreeSpace / 1e9;
+                        if (libreGo < besoinGo + 2) {
+                            soucis.Add("Disque : la série pèsera environ " + besoinGo.ToString("0.#")
+                                + " Go, mais il ne reste que " + libreGo.ToString("0.#")
+                                + " Go sur le disque des images. Faites de la place !");
+                        }
+                    }
+                } catch { }
+
+                if (soucis.Count > 0) {
+                    Avertissement = "⚠ " + string.Join("\n⚠ ", soucis)
+                        + "\n→ Corrigez… ou cliquez une seconde fois sur LANCER pour y aller quand même.";
                     RaisePropertyChanged(nameof(Avertissement));
-                    meteoConfirmee = true;
+                    goConfirme = true;
                     return;
                 }
             }
@@ -1001,7 +1186,7 @@ namespace ModeDebutant.Sequenceur {
             meilleurHfr = double.NaN;   // les repères de qualité repartent
             meilleuresEtoiles = 0;      // de zéro à chaque série
             niveauVerdictPrecedent = 0; // et le téléphone repart de "tout va bien"
-            meteoConfirmee = false;     // la prochaine série re-vérifiera la météo
+            goConfirme = false;         // la prochaine série re-vérifiera tout
             darksEnCours = false;
             nbLightsFaits = 0;
             serieDebut = DateTime.Now;
@@ -1294,7 +1479,7 @@ namespace ModeDebutant.Sequenceur {
             ResumeBilan = "";
             Avertissement = "";
             MessageAlerteTel = "";
-            meteoConfirmee = false;
+            goConfirme = false;
 
             phase = Phase.Preparation;
             _ = ChargerMeteo(); // prévisions toutes fraîches
@@ -1458,7 +1643,7 @@ namespace ModeDebutant.Sequenceur {
         private void NouvelleSerie() {
             phase = Phase.Preparation;
             Avertissement = "";
-            meteoConfirmee = false;
+            goConfirme = false;
             _ = ChargerMeteo(); // prévisions toutes fraîches pour la suite
             NotifierToutChange();
         }
@@ -1658,6 +1843,12 @@ namespace ModeDebutant.Sequenceur {
         private static readonly Brush BrosseOrange = CreerBrosse(230, 145, 10);
         private static readonly Brush BrosseRouge = CreerBrosse(198, 40, 40);
 
+        // Teintes claires pour du TEXTE sur le fond sombre de N.I.N.A.
+        private static readonly Brush BrosseVertClair = CreerBrosse(129, 199, 132);
+        private static readonly Brush BrosseOrangeClair = CreerBrosse(255, 183, 77);
+        private static readonly Brush BrosseRougeClair = CreerBrosse(229, 115, 115);
+        private static readonly Brush BrosseGriseClair = CreerBrosse(160, 160, 160);
+
         private static Brush CreerBrosse(byte r, byte g, byte b) {
             var brosse = new SolidColorBrush(Color.FromRgb(r, g, b));
             brosse.Freeze();
@@ -1717,6 +1908,18 @@ namespace ModeDebutant.Sequenceur {
 
         /// <summary>Au-dessus de l'horizon en ce moment ?</summary>
         public bool EstVisible { get; }
+    }
+
+    /// <summary>Une ligne du tableau de bord « Tout est prêt ? ».</summary>
+    public class LigneEtat {
+
+        public LigneEtat(string texte, Brush couleur) {
+            Texte = texte;
+            Couleur = couleur;
+        }
+
+        public string Texte { get; }
+        public Brush Couleur { get; }
     }
 
     /// <summary>Commande WPF minimale pour une action instantanée.</summary>

@@ -26,6 +26,25 @@
                     <TextBlock TextWrapping="Wrap" FontSize="14"
                                Text="Prêt à photographier ! Choisissez une cible (ou visez-la vous-même), réglez la série, puis appuyez sur le gros bouton." />
 
+                    <!-- ── Le tableau de bord : tout est prêt ? (état en direct,
+                         rafraîchi toutes les 2 secondes) ── -->
+                    <Border Background="#22888888" CornerRadius="8" Padding="12" Margin="0,12,0,0">
+                        <StackPanel>
+                            <Border Background="{Binding CouleurTableauBord}" CornerRadius="6" Padding="8,5">
+                                <TextBlock Text="{Binding TableauBordTitre}" Foreground="White"
+                                           FontSize="14" FontWeight="Bold" TextWrapping="Wrap" />
+                            </Border>
+                            <ItemsControl ItemsSource="{Binding EtatsMateriel}" Margin="0,8,0,0">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding Texte}" Foreground="{Binding Couleur}"
+                                                   FontSize="12" TextWrapping="Wrap" Margin="0,2,0,0" />
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                    </Border>
+
                     <!-- Premier geste de la soirée : repartir d'une feuille
                          blanche, et au besoin revoir le bilan d'hier -->
                     <Button Command="{Binding NouvelleSessionCommand}" Height="32" Margin="0,10,0,0" FontSize="12"
