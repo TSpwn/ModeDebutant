@@ -115,7 +115,10 @@
                                 </DockPanel>
                                 <DockPanel Margin="0,6,0,0">
                                     <TextBox DockPanel.Dock="Right" Width="110" Text="{Binding DiametreSaisie, UpdateSourceTrigger=PropertyChanged}" />
-                                    <TextBlock Text="Diamètre / ouverture (mm)" VerticalAlignment="Center" FontSize="13" />
+                                    <StackPanel VerticalAlignment="Center">
+                                        <TextBlock Text="Ouverture" FontSize="13" />
+                                        <TextBlock Text="f/ (ex : 2,8) ou diamètre en mm (ex : 72)" FontSize="10" Opacity="0.6" />
+                                    </StackPanel>
                                 </DockPanel>
                                 <DockPanel Margin="0,6,0,0">
                                     <TextBox DockPanel.Dock="Right" Width="110" Text="{Binding PixelSaisie, UpdateSourceTrigger=PropertyChanged}" />

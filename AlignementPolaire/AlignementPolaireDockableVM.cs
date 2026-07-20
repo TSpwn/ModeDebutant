@@ -405,9 +405,11 @@ namespace ModeDebutant.AlignementPolaire {
                 double rapportFD = profileService.ActiveProfile.TelescopeSettings.FocalRatio;
                 double pixel = profileService.ActiveProfile.CameraSettings.PixelSize;
                 FocaleSaisie = focale > 0 ? focale.ToString("0", CultureInfo.InvariantCulture) : "";
-                DiametreSaisie = focale > 0 && rapportFD > 0 ? (focale / rapportFD).ToString("0", CultureInfo.InvariantCulture) : "";
+                // Préremplie en « f/5.6 » : sans ambiguïté (le « f/ » est
+                // compris à l'enregistrement, et modifiable en mm si on veut)
+                DiametreSaisie = rapportFD > 0 ? "f/" + rapportFD.ToString("0.##", CultureInfo.InvariantCulture) : "";
                 PixelSaisie = pixel > 0 ? pixel.ToString("0.##", CultureInfo.InvariantCulture) : "";
-                MessageMateriel = "Ces chiffres sont écrits sur le tube ou l'objectif (ex : « 72/400 » = diamètre 72 mm, focale 400 mm). La taille de pixel est dans la fiche technique de la caméra (souvent remplie automatiquement à la connexion).";
+                MessageMateriel = "Ouverture : tapez au choix le rapport f/ de votre objectif (ex : 2,8) OU le diamètre en mm de votre tube (ex : 72 — souvent gravé « 72/400 »). La taille de pixel est dans la fiche technique de la caméra (souvent remplie automatiquement à la connexion).";
             } else {
                 MessageMateriel = "";
             }
@@ -421,26 +423,37 @@ namespace ModeDebutant.AlignementPolaire {
         /// <summary>Enregistre dans le profil N.I.N.A. (champ vide = inchangé).</summary>
         private void EnregistrerMateriel() {
             var focaleTexte = FocaleSaisie?.Trim().Replace(',', '.');
-            var diametreTexte = DiametreSaisie?.Trim().Replace(',', '.');
+            // L'ouverture accepte les deux écritures : « f/2.8 » ou « 2.8 »
+            // (rapport, comme sur un objectif photo) ou « 72 » (diamètre en
+            // mm, comme sur un tube astro)
+            var ouvertureTexte = DiametreSaisie?.Trim().Replace(',', '.')
+                .Replace("f/", "").Replace("F/", "").Replace("f", "").Replace("F", "").Trim();
             var pixelTexte = PixelSaisie?.Trim().Replace(',', '.');
 
             bool focaleOk = double.TryParse(focaleTexte, NumberStyles.Float, CultureInfo.InvariantCulture, out var focale) && focale > 0 && focale < 20000;
-            bool diametreOk = double.TryParse(diametreTexte, NumberStyles.Float, CultureInfo.InvariantCulture, out var diametre) && diametre > 0 && diametre < 2000;
+            bool ouvertureOk = double.TryParse(ouvertureTexte, NumberStyles.Float, CultureInfo.InvariantCulture, out var ouverture) && ouverture > 0 && ouverture < 2000;
             bool pixelOk = double.TryParse(pixelTexte, NumberStyles.Float, CultureInfo.InvariantCulture, out var pixel) && pixel > 0 && pixel < 100;
 
-            if (!focaleOk && !diametreOk && !pixelOk) {
-                MessageMateriel = "⚠ Aucune valeur lisible. Attendu : des nombres, ex. focale 400, diamètre 72, pixels 3,76.";
+            if (!focaleOk && !ouvertureOk && !pixelOk) {
+                MessageMateriel = "⚠ Aucune valeur lisible. Attendu : des nombres — focale 400, ouverture 2,8 (rapport f/) ou 72 (mm), pixels 3,76.";
                 RaisePropertyChanged(nameof(MessageMateriel));
                 return;
             }
 
             if (focaleOk) { profileService.ActiveProfile.TelescopeSettings.FocalLength = focale; }
 
-            // Le diamètre est enregistré sous forme de rapport F/D (le format
-            // de N.I.N.A.) : F/D = focale ÷ diamètre
+            // N.I.N.A. stocke le rapport F/D. Deux cas selon ce qui est tapé :
+            //  - petite valeur (<= 20)  -> c'est déjà un rapport f/ (objectif
+            //    photo : f/1.4 à f/16, ou Maksutov jusqu'à f/15 environ)
+            //  - grande valeur (> 20)   -> c'est un diamètre en mm,
+            //    on convertit : F/D = focale ÷ diamètre
             double focaleFinale = profileService.ActiveProfile.TelescopeSettings.FocalLength;
-            if (diametreOk && focaleFinale > 0) {
-                profileService.ActiveProfile.TelescopeSettings.FocalRatio = focaleFinale / diametre;
+            if (ouvertureOk) {
+                if (ouverture <= 20) {
+                    profileService.ActiveProfile.TelescopeSettings.FocalRatio = ouverture;
+                } else if (focaleFinale > 0) {
+                    profileService.ActiveProfile.TelescopeSettings.FocalRatio = focaleFinale / ouverture;
+                }
             }
 
             if (pixelOk) { profileService.ActiveProfile.CameraSettings.PixelSize = pixel; }
