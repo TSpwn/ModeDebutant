@@ -1,5 +1,7 @@
 using NINA.Core.Enum;
+using NINA.Core.Utility;
 using NINA.Equipment.Interfaces.Mediator;
+using NINA.Equipment.Model;
 using NINA.Equipment.Interfaces.ViewModel;
 using NINA.Image.Interfaces;
 using NINA.Plugin.Interfaces;
@@ -13,6 +15,7 @@ using System.IO;
 using System.Net.Http;
 using System.Reflection;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Input;
 using System.Windows.Media;
@@ -46,6 +49,7 @@ namespace ModeDebutant.AlignementPolaire {
         private readonly IProfileService profileService;
         private readonly ICameraMediator cameraMediator;
         private readonly ITelescopeMediator telescopeMediator;
+        private readonly IImagingMediator imagingMediator;
 
         // Chien de garde : vérifie régulièrement que TPPA donne signe de vie
         // après un démarrage (sinon on prévient au lieu d'attendre en silence)
@@ -67,6 +71,7 @@ namespace ModeDebutant.AlignementPolaire {
             this.messageBroker = messageBroker;
             this.cameraMediator = cameraMediator;
             this.telescopeMediator = telescopeMediator;
+            this.imagingMediator = imagingMediator;
 
             // Toutes les 5 secondes, le chien de garde vérifie si TPPA répond
             chienDeGarde = new System.Timers.Timer(5000) { AutoReset = true };
@@ -103,6 +108,8 @@ namespace ModeDebutant.AlignementPolaire {
             LocaliserParInternetCommand = new CommandeSimple(LocaliserParInternet);
             OuvrirModificationMaterielCommand = new CommandeSimple(OuvrirModificationMateriel);
             EnregistrerMaterielCommand = new CommandeSimple(EnregistrerMateriel);
+            CommencerReglageCommand = new CommandeSimple(() => _ = CommencerReglage());
+            ArreterReglageCommand = new CommandeSimple(ArreterReglage);
             RafraichirMateriel();
 
             // La position du lieu d'observation : affichée en clair, car tout
@@ -463,6 +470,157 @@ namespace ModeDebutant.AlignementPolaire {
             RaisePropertyChanged(nameof(ModificationMaterielOuverte));
             RaisePropertyChanged(nameof(MessageMateriel));
             RafraichirMateriel();
+        }
+
+        // ------------------------------------------------------------------
+        // Aide à la mise au point à la main (focuser non motorisé)
+        //
+        // À faire AVANT l'alignement : TPPA a besoin d'étoiles nettes pour
+        // analyser ses photos. Le mode « réglage » : photos courtes en
+        // boucle, netteté (HFR) affichée en énorme avec une flèche de
+        // tendance. Vous tournez la molette entre deux photos, l'écran dit
+        // si vous améliorez.
+        // ------------------------------------------------------------------
+
+        private bool modeReglage;
+        private CancellationTokenSource reglageAnnulation;
+        private double dernierHfrReglage = double.NaN;
+        private double meilleurHfrReglage = double.NaN;
+
+        public bool EnReglage => modeReglage;
+
+        /// <summary>Pose des photos de réglage, en secondes (défaut 2).</summary>
+        public string PoseReglageTexte {
+            get => reglages.GetValueString(nameof(PoseReglageTexte), "2");
+            set { reglages.SetValueString(nameof(PoseReglageTexte), value); RaisePropertyChanged(); }
+        }
+
+        /// <summary>Le HFR en énorme (« 2,41 ») — petit = net.</summary>
+        public string HfrGeantTexte { get; private set; } = "—";
+
+        /// <summary>La flèche de tendance : ↘ mieux, ↗ moins bien, → stable.</summary>
+        public string TendanceFleche { get; private set; } = "";
+
+        /// <summary>La consigne : « continuez dans ce sens » / « inversez ».</summary>
+        public string TendanceTexte { get; private set; } = "";
+
+        public Brush CouleurTendance { get; private set; } = BrosseVert;
+
+        /// <summary>Étoiles + record de la session de réglage.</summary>
+        public string ReglageInfoTexte { get; private set; } = "";
+
+        public ICommand CommencerReglageCommand { get; }
+        public ICommand ArreterReglageCommand { get; }
+
+        private async Task CommencerReglage() {
+            if (phase != Phase.Attente || modeReglage) { return; }
+            if (!cameraMediator.GetInfo().Connected) {
+                Avertissement = "⚠ La caméra n'est pas connectée. Allez dans l'onglet Équipement > Caméra, connectez-la, puis revenez.";
+                RaisePropertyChanged(nameof(Avertissement));
+                return;
+            }
+
+            Avertissement = "";
+            dernierHfrReglage = double.NaN;
+            meilleurHfrReglage = double.NaN;
+            HfrGeantTexte = "—";
+            TendanceFleche = "";
+            TendanceTexte = "Première photo en cours…";
+            CouleurTendance = BrosseVert;
+            ReglageInfoTexte = "";
+            modeReglage = true;
+            NotifierToutChange();
+
+            reglageAnnulation = new CancellationTokenSource();
+            try {
+                while (!reglageAnnulation.IsCancellationRequested && phase == Phase.Attente) {
+                    double pose = VersDouble(PoseReglageTexte) is double p && p > 0 ? p : 2.0;
+                    // Une photo « instantanée » (SNAPSHOT = pas enregistrée
+                    // dans les fichiers de la nuit), binning 1x1
+                    var capture = new CaptureSequence(pose, CaptureSequence.ImageTypes.SNAPSHOT,
+                        null, new NINA.Core.Model.Equipment.BinningMode(1, 1), 1);
+                    var rendu = await imagingMediator.CaptureAndPrepareImage(capture,
+                        new PrepareImageParameters(true, false), reglageAnnulation.Token, null);
+                    if (reglageAnnulation.IsCancellationRequested) { break; }
+                    await AnalyserPhotoReglage(rendu);
+                }
+            } catch (OperationCanceledException) {
+                // Arrêt demandé : tout va bien
+            } catch (Exception ex) {
+                Avertissement = "⚠ Le réglage s'est interrompu : " + ex.Message;
+            } finally {
+                reglageAnnulation?.Dispose();
+                reglageAnnulation = null;
+            }
+
+            modeReglage = false;
+            NotifierToutChange();
+        }
+
+        private async Task AnalyserPhotoReglage(IRenderedImage rendu) {
+            if (rendu == null) { return; }
+            try {
+                var analyse = rendu.RawImageData?.StarDetectionAnalysis;
+                if (analyse == null || analyse.DetectedStars <= 0) {
+                    var renduAnalyse = await rendu.DetectStars(false, StarSensitivityEnum.Normal, NoiseReductionEnum.None);
+                    analyse = renduAnalyse?.RawImageData?.StarDetectionAnalysis;
+                }
+
+                int etoiles = analyse?.DetectedStars ?? 0;
+                double hfr = analyse?.HFR ?? double.NaN;
+
+                if (etoiles <= 0 || double.IsNaN(hfr) || hfr <= 0) {
+                    HfrGeantTexte = "—";
+                    TendanceFleche = "❓";
+                    TendanceTexte = "Aucune étoile détectée : visez une étoile bien visible, ou allongez un peu la pose.";
+                    CouleurTendance = BrosseOrange;
+                    ReglageInfoTexte = "";
+                } else {
+                    HfrGeantTexte = hfr.ToString("0.00");
+
+                    // Le record de la session (le plus PETIT HFR atteint)
+                    if (double.IsNaN(meilleurHfrReglage) || hfr < meilleurHfrReglage) { meilleurHfrReglage = hfr; }
+
+                    // La tendance par rapport à la photo précédente
+                    // (marge de 3 % : en dessous, c'est du bruit de mesure)
+                    if (double.IsNaN(dernierHfrReglage)) {
+                        TendanceFleche = "→";
+                        TendanceTexte = "Tournez LÉGÈREMENT la molette de mise au point, puis attendez la photo suivante.";
+                        CouleurTendance = BrosseVert;
+                    } else if (hfr < dernierHfrReglage * 0.97) {
+                        TendanceFleche = "↘";
+                        TendanceTexte = "Ça s'améliore — continuez DANS LE MÊME SENS, par petites touches.";
+                        CouleurTendance = BrosseVert;
+                    } else if (hfr > dernierHfrReglage * 1.03) {
+                        TendanceFleche = "↗";
+                        TendanceTexte = "Ça se dégrade — tournez dans L'AUTRE SENS.";
+                        CouleurTendance = BrosseOrange;
+                    } else {
+                        TendanceFleche = "→";
+                        TendanceTexte = hfr <= meilleurHfrReglage * 1.05
+                            ? "Stable et proche de votre record : c'est très bon, vous pouvez arrêter là !"
+                            : "Stable. Tournez un peu la molette pour chercher mieux.";
+                        CouleurTendance = BrosseVert;
+                    }
+                    dernierHfrReglage = hfr;
+
+                    ReglageInfoTexte = "⭐ " + etoiles + (etoiles > 1 ? " étoiles" : " étoile")
+                        + "   ·   record de la session : " + meilleurHfrReglage.ToString("0.00") + " (petit = net)";
+                }
+
+                RaisePropertyChanged(nameof(HfrGeantTexte));
+                RaisePropertyChanged(nameof(TendanceFleche));
+                RaisePropertyChanged(nameof(TendanceTexte));
+                RaisePropertyChanged(nameof(CouleurTendance));
+                RaisePropertyChanged(nameof(ReglageInfoTexte));
+            } catch {
+                // L'analyse d'une photo de réglage peut échouer sans gravité :
+                // la suivante arrive dans quelques secondes
+            }
+        }
+
+        private void ArreterReglage() {
+            try { reglageAnnulation?.Cancel(); } catch { }
         }
 
         // ------------------------------------------------------------------
@@ -834,7 +992,7 @@ namespace ModeDebutant.AlignementPolaire {
         // Propriétés affichées par l'écran (le .xaml s'y "branche")
         // ------------------------------------------------------------------
 
-        public bool EnAttente => phase == Phase.Attente;
+        public bool EnAttente => phase == Phase.Attente && !modeReglage;
         public bool EnMesure => phase == Phase.Mesure;
         public bool EnAjustement => phase == Phase.Ajustement;
 

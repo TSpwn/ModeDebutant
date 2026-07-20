@@ -107,24 +107,6 @@
                         </StackPanel>
                     </Border>
 
-                    <!-- ── La mise au point (avant la série) ── -->
-                    <Border Background="#22888888" CornerRadius="8" Padding="12" Margin="0,12,0,0">
-                        <StackPanel>
-                            <TextBlock Text="🔍 La mise au point" FontSize="14" FontWeight="Bold" />
-                            <TextBlock FontSize="11" Opacity="0.6" TextWrapping="Wrap" Margin="0,2,0,8"
-                                       Text="Pour les molettes manuelles : visez une étoile bien visible, lancez, et laissez l'écran vous guider — une photo toutes les quelques secondes, la netteté en direct." />
-                            <DockPanel>
-                                <TextBox DockPanel.Dock="Right" Width="70" Height="28" FontSize="13"
-                                         VerticalContentAlignment="Center" TextAlignment="Center"
-                                         Text="{Binding PoseReglageTexte, UpdateSourceTrigger=PropertyChanged}" />
-                                <TextBlock Text="Pose des photos de réglage (secondes)" VerticalAlignment="Center" FontSize="12" />
-                            </DockPanel>
-                            <Button Command="{Binding CommencerReglageCommand}" Height="36" Margin="0,10,0,0"
-                                    FontSize="13" FontWeight="Bold"
-                                    Content="🔍 Commencer le réglage de la mise au point" />
-                        </StackPanel>
-                    </Border>
-
                     <!-- ── Étape 2 : la série ── -->
                     <Border Background="#22888888" CornerRadius="8" Padding="12" Margin="0,12,0,0">
                         <StackPanel>
@@ -297,45 +279,6 @@
 
                     <TextBlock FontSize="11" Opacity="0.5" Margin="0,10,0,0" TextWrapping="Wrap"
                                Text="Le bouton fabrique une vraie séquence dans le séquenceur avancé de N.I.N.A. et la lance : les photos sont enregistrées comme d'habitude, dans le dossier d'images de N.I.N.A." />
-                </StackPanel>
-
-                <!-- ═══════════ MODE RÉGLAGE : MISE AU POINT À LA MAIN ═══════════ -->
-                <StackPanel Visibility="{Binding EnReglage, Converter={StaticResource BoolVersVisibiliteSeq}}">
-                    <TextBlock FontSize="18" FontWeight="Bold" Text="🔍  Réglage de la mise au point" />
-                    <TextBlock TextWrapping="Wrap" FontSize="12" Opacity="0.7" Margin="0,6,0,0"
-                               Text="Tournez DOUCEMENT la molette de mise au point entre deux photos, et regardez le chiffre : plus il est PETIT, plus c'est net." />
-
-                    <!-- Le HFR en énorme + la flèche de tendance -->
-                    <Border Background="{Binding CouleurTendance}" CornerRadius="10" Padding="16" Margin="0,12,0,0">
-                        <StackPanel HorizontalAlignment="Center" Orientation="Horizontal">
-                            <TextBlock Text="{Binding HfrGeantTexte}" Foreground="White"
-                                       FontSize="64" FontWeight="Bold" VerticalAlignment="Center" />
-                            <TextBlock Text="{Binding TendanceFleche}" Foreground="White"
-                                       FontSize="56" Margin="18,0,0,0" VerticalAlignment="Center" />
-                        </StackPanel>
-                    </Border>
-
-                    <!-- La consigne en clair -->
-                    <TextBlock Text="{Binding TendanceTexte}" FontSize="15" FontWeight="Bold"
-                               TextWrapping="Wrap" TextAlignment="Center" Margin="0,10,0,0" />
-
-                    <!-- Étoiles + record de la session -->
-                    <TextBlock Text="{Binding ReglageInfoTexte}" FontSize="13"
-                               HorizontalAlignment="Center" Margin="0,6,0,0" TextWrapping="Wrap" />
-
-                    <!-- La dernière photo de réglage -->
-                    <Border Background="#111111" CornerRadius="8" Margin="0,12,0,0"
-                            Height="180" ClipToBounds="True">
-                        <Grid>
-                            <TextBlock Text="Photo en cours…" FontSize="12" Opacity="0.5"
-                                       HorizontalAlignment="Center" VerticalAlignment="Center" />
-                            <Image Source="{Binding DerniereImage}" Stretch="Uniform" />
-                        </Grid>
-                    </Border>
-
-                    <Button Command="{Binding ArreterReglageCommand}" Height="48" Margin="0,14,0,0"
-                            Background="#2E7D32" Foreground="White" FontSize="16" FontWeight="Bold"
-                            Content="✓  C'EST NET — TERMINER LE RÉGLAGE" />
                 </StackPanel>
 
                 <!-- ═══════════ PHASE 2 : SÉRIE EN COURS (photos ou darks) ═══════════ -->
