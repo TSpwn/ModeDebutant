@@ -446,15 +446,20 @@ namespace ModeDebutant.Sequenceur {
                 var latitude = Angle.ByDegree(profileService.ActiveProfile.AstrometrySettings.Latitude);
                 var longitude = Angle.ByDegree(profileService.ActiveProfile.AstrometrySettings.Longitude);
                 var altitudeLieu = profileService.ActiveProfile.AstrometrySettings.Elevation;
+                var champ = CalculerChampArcmin(); // pour annoter le cadrage
 
                 foreach (var objet in objets) {
-                    Resultats.Add(new CibleTrouvee(objet, latitude, longitude, altitudeLieu));
+                    Resultats.Add(new CibleTrouvee(objet, latitude, longitude, altitudeLieu,
+                        AnnoterCadre(objet.Size, champ)));
                 }
 
                 if (Resultats.Count == 0) {
                     MessageCible = "Aucun objet trouvé avec ce nom. Essayez « M31 », « NGC 7000 » ou un nom anglais (« Orion Nebula »).";
                 } else {
                     MessageCible = "Cliquez sur un objet dans la liste, puis sur « Pointer le télescope ».";
+                    MessageCible += champ != null
+                        ? "  (Votre champ : " + champ.Item1.ToString("0") + "′ × " + champ.Item2.ToString("0") + "′.)"
+                        : "  💡 Connectez la caméra (et renseignez focale + taille de pixel dans les options N.I.N.A.) pour vérifier le cadrage.";
                     // S'il n'y a qu'un seul résultat, on le sélectionne d'office
                     if (Resultats.Count == 1) { CibleChoisie = Resultats[0]; }
                 }
@@ -496,9 +501,11 @@ namespace ModeDebutant.Sequenceur {
 
             try {
                 var horizon = profileService.ActiveProfile.AstrometrySettings.Horizon;
+                var champ = CalculerChampArcmin(); // lu ici (thread d'interface),
+                                                   // utilisé dans le calcul de fond
                 // Le calcul (400 objets × 4 positions) part en tâche de fond
                 // pour ne pas figer l'interface
-                var suggestions = await Task.Run(() => CalculerSuggestions(lat, lon, elevation, horizon));
+                var suggestions = await Task.Run(() => CalculerSuggestions(lat, lon, elevation, horizon, champ));
 
                 foreach (var suggestion in suggestions) { Resultats.Add(suggestion); }
 
@@ -507,13 +514,18 @@ namespace ModeDebutant.Sequenceur {
                 MessageCible = suggestions.Count == 0
                     ? "Rien d'idéal en ce moment" + lune + " : objets trop bas ou trop près de la Lune. Réessayez à une autre heure."
                     : "Les " + suggestions.Count + " meilleures cibles de ce soir" + lune + ". Cliquez-en une, puis « Pointer le télescope ».";
+                if (suggestions.Count > 0) {
+                    MessageCible += champ != null
+                        ? "  (Classées aussi selon votre champ : " + champ.Item1.ToString("0") + "′ × " + champ.Item2.ToString("0") + "′.)"
+                        : "  💡 Connectez la caméra pour que les suggestions tiennent compte de votre cadrage.";
+                }
             } catch (Exception ex) {
                 MessageCible = "⚠ Le calcul a échoué : " + ex.Message;
             }
             RaisePropertyChanged(nameof(MessageCible));
         }
 
-        private List<CibleTrouvee> CalculerSuggestions(double lat, double lon, double elevation, NINA.Core.Model.CustomHorizon horizon) {
+        private List<CibleTrouvee> CalculerSuggestions(double lat, double lon, double elevation, NINA.Core.Model.CustomHorizon horizon, Tuple<double, double> champ) {
             // La fenêtre étudiée : dès maintenant si c'est la nuit, sinon à
             // partir de 21 h ce soir — puis 4 instants espacés d'1 h 30
             var maintenant = DateTime.Now;
@@ -565,11 +577,68 @@ namespace ModeDebutant.Sequenceur {
                     + (10.0 - magnitude) * 5.0                // brillant = bien
                     + Math.Min(distanceLune, 60.0) / 3.0;     // loin de la Lune = bien
 
+                // Le cadrage compte aussi : bonus pour les objets qui font de
+                // belles images dans VOTRE champ, malus pour les timbres-poste
+                // et ce qui déborde largement
+                var conseilCadre = AnnoterCadre(objet.Size, champ);
+                if (champ != null && objet.Size.HasValue && objet.Size.Value > 0) {
+                    double ratio = objet.Size.Value / Math.Min(champ.Item1, champ.Item2);
+                    if (ratio >= 0.15 && ratio <= 1.1) { note += 15; }        // taille idéale
+                    else if (ratio < 0.04) { note -= 25; }                    // timbre-poste
+                    else if (ratio > 1.1) { note -= 5; }                      // déborde un peu
+                }
+
                 var complement = "🌟 au mieux " + maxAlt.ToString("0") + "° vers " + heureMax.ToString("HH\\h");
+                if (!string.IsNullOrEmpty(conseilCadre)) { complement += "  ·  " + conseilCadre; }
                 notes.Add(Tuple.Create(note, new CibleTrouvee(objet, latAngle, lonAngle, elevation, complement)));
             }
 
             return notes.OrderByDescending(x => x.Item1).Take(5).Select(x => x.Item2).ToList();
+        }
+
+        // ------------------------------------------------------------------
+        // Le cadrage : votre champ de vision comparé à la taille de l'objet
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// Champ de vision (largeur, hauteur) en minutes d'arc, calculé avec
+        /// la focale du profil et le capteur de la caméra connectée.
+        /// null = pas calculable (focale/pixel non renseignés ou caméra
+        /// déconnectée) — dans ce cas on n'annote simplement rien.
+        /// </summary>
+        private Tuple<double, double> CalculerChampArcmin() {
+            try {
+                double focaleMm = profileService.ActiveProfile.TelescopeSettings.FocalLength;
+                double pixelMicrons = profileService.ActiveProfile.CameraSettings.PixelSize;
+                var camera = cameraMediator.GetInfo();
+                if (focaleMm <= 0 || pixelMicrons <= 0 || !camera.Connected || camera.XSize <= 0 || camera.YSize <= 0) {
+                    return null;
+                }
+                // La formule classique : 206,265 × taille de pixel (µm) /
+                // focale (mm) = secondes d'arc par pixel
+                double arcsecParPixel = 206.265 * pixelMicrons / focaleMm;
+                return Tuple.Create(camera.XSize * arcsecParPixel / 60.0, camera.YSize * arcsecParPixel / 60.0);
+            } catch {
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Traduit « taille de l'objet vs petit côté du cadre » en conseil.
+        /// Évite les deux déceptions classiques du débutant : l'objet
+        /// gigantesque qui déborde (M31 !) et le timbre-poste invisible.
+        /// </summary>
+        private static string AnnoterCadre(double? tailleArcmin, Tuple<double, double> champ) {
+            if (champ == null || !tailleArcmin.HasValue || tailleArcmin.Value <= 0) { return ""; }
+            double petitCote = Math.Min(champ.Item1, champ.Item2);
+            if (petitCote <= 0) { return ""; }
+            double ratio = tailleArcmin.Value / petitCote;
+
+            if (ratio > 1.1) { return "⚠ déborde de votre cadre — visez le cœur"; }
+            if (ratio >= 0.5) { return "🖼 remplit superbement votre cadre"; }
+            if (ratio >= 0.15) { return "🖼 belle taille dans votre cadre"; }
+            if (ratio >= 0.04) { return "assez petit dans votre cadre"; }
+            return "⚠ minuscule pour votre champ (timbre-poste)";
         }
 
         /// <summary>Écart angulaire entre deux points du ciel, en degrés.</summary>
