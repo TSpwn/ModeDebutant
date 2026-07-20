@@ -1,0 +1,26 @@
+<!-- ============================================================
+     Interface de la page "options" du plugin dans N.I.N.A.
+     (onglet Plugins > Mode Debutant)
+
+     Le fichier est en XAML : un langage de description d'interface
+     (comme du HTML, mais pour les applications Windows).
+
+     Règle imposée par N.I.N.A. : le gabarit doit s'appeler
+     "<Nom du plugin>_Options" — ici "Mode Debutant_Options".
+     C'est grâce à ce nom que N.I.N.A. sait quoi afficher sur la
+     page de notre plugin.
+     ============================================================ -->
+<ResourceDictionary
+    x:Class="ModeDebutant.Options"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <DataTemplate x:Key="Mode Debutant_Options">
+        <StackPanel Orientation="Vertical" Margin="10">
+            <TextBlock FontSize="16" FontWeight="Bold" Text="Mode Débutant — squelette installé ✔" />
+            <TextBlock Margin="0,10,0,0" TextWrapping="Wrap"
+                       Text="Si vous lisez ce texte dans N.I.N.A., le plugin est correctement installé. Les écrans « Alignement polaire simplifié » et « Séquence simple » arriveront dans les prochaines étapes." />
+        </StackPanel>
+    </DataTemplate>
+
+</ResourceDictionary>

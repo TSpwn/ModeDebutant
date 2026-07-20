@@ -1,0 +1,309 @@
+<!-- ============================================================
+     L'écran du panneau « Alignement polaire simplifié ».
+
+     Règle N.I.N.A. : pour un panneau de l'onglet imagerie, le gabarit
+     doit s'appeler "<Nom complet de la classe cerveau>_Dockable".
+     Ici : "ModeDebutant.AlignementPolaire.AlignementPolaireDockableVM_Dockable".
+
+     Tous les {Binding ...} se branchent sur les propriétés du "cerveau"
+     (AlignementPolaireDockableVM.cs).
+     ============================================================ -->
+<ResourceDictionary
+    x:Class="ModeDebutant.AlignementPolaire.AlignementPolaireDockableTemplates"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!-- Petit outil de conversion : vrai/faux -> visible/caché -->
+    <BooleanToVisibilityConverter x:Key="BoolVersVisibilite" />
+
+    <DataTemplate x:Key="ModeDebutant.AlignementPolaire.AlignementPolaireDockableVM_Dockable">
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <StackPanel Margin="12" MaxWidth="460">
+
+                <!-- ═══════════ PHASE 1 : EN ATTENTE ═══════════ -->
+                <StackPanel Visibility="{Binding EnAttente, Converter={StaticResource BoolVersVisibilite}}">
+
+                    <!-- Avertissement si TPPA n'est pas installé -->
+                    <Border Background="#C62828" CornerRadius="6" Padding="10" Margin="0,0,0,10"
+                            Visibility="{Binding TppaAbsent, Converter={StaticResource BoolVersVisibilite}}">
+                        <TextBlock Foreground="White" TextWrapping="Wrap" FontSize="14"
+                                   Text="Le plugin « Three Point Polar Alignment » (TPPA) ne semble pas installé. Installez-le via l'onglet Plugins de N.I.N.A., puis redémarrez." />
+                    </Border>
+
+                    <TextBlock TextWrapping="Wrap" FontSize="14"
+                               Text="Prêt à aligner votre monture.&#10;&#10;1. Connectez caméra et monture&#10;2. Pointez approximativement vers le pôle&#10;3. Choisissez vos options ci-dessous, puis cliquez sur le gros bouton." />
+
+                    <!-- ── Carte position : tout l'alignement dépend de ce réglage
+                         (hémisphère nord/sud), alors on l'affiche en clair au
+                         lieu de le laisser enfoui dans Options > Général ── -->
+                    <Border Background="#22888888" CornerRadius="8" Padding="12" Margin="0,14,0,0">
+                        <StackPanel>
+                            <TextBlock Text="📍 Votre position d'observation" FontSize="14" FontWeight="Bold" />
+
+                            <!-- Alerte si la position est restée à (0,0) -->
+                            <Border Background="#C62828" CornerRadius="6" Padding="8" Margin="0,8,0,0"
+                                    Visibility="{Binding PositionNonReglee, Converter={StaticResource BoolVersVisibilite}}">
+                                <TextBlock Foreground="White" TextWrapping="Wrap" FontSize="12" FontWeight="Bold"
+                                           Text="⚠ Position non réglée (0°, 0° = en plein océan) ! Les consignes de vis seraient fausses. Réglez-la avec l'un des deux boutons ci-dessous." />
+                            </Border>
+
+                            <TextBlock Text="{Binding PositionTexte}" FontSize="14" FontWeight="Bold" Margin="0,8,0,0" />
+                            <TextBlock Text="{Binding VilleTexte}" FontSize="12" Opacity="0.7" Margin="0,2,0,0" TextWrapping="Wrap" />
+                            <TextBlock FontSize="11" Opacity="0.5" Margin="0,2,0,0" TextWrapping="Wrap"
+                                       Text="C'est la position enregistrée dans N.I.N.A. : TPPA et les consignes de vis s'en servent. Vérifiez que c'est bien chez vous !" />
+
+                            <UniformGrid Columns="2" Margin="0,10,0,0">
+                                <Button Command="{Binding OuvrirModificationPositionCommand}" Height="32"
+                                        Margin="0,0,4,0" FontSize="12" Content="✏ Modifier à la main" />
+                                <Button Command="{Binding LocaliserParInternetCommand}" Height="32"
+                                        Margin="4,0,0,0" FontSize="12" Content="🌍 Me localiser par Internet" />
+                            </UniformGrid>
+
+                            <!-- Saisie manuelle (repliée par défaut) -->
+                            <StackPanel Margin="0,10,0,0"
+                                        Visibility="{Binding ModificationPositionOuverte, Converter={StaticResource BoolVersVisibilite}}">
+                                <DockPanel>
+                                    <TextBox DockPanel.Dock="Right" Width="110" Text="{Binding LatitudeSaisie, UpdateSourceTrigger=PropertyChanged}" />
+                                    <TextBlock Text="Latitude (degrés)" VerticalAlignment="Center" FontSize="13" />
+                                </DockPanel>
+                                <DockPanel Margin="0,6,0,0">
+                                    <TextBox DockPanel.Dock="Right" Width="110" Text="{Binding LongitudeSaisie, UpdateSourceTrigger=PropertyChanged}" />
+                                    <TextBlock Text="Longitude (degrés)" VerticalAlignment="Center" FontSize="13" />
+                                </DockPanel>
+                                <DockPanel Margin="0,6,0,0">
+                                    <TextBox DockPanel.Dock="Right" Width="110" Text="{Binding AltitudeSaisie, UpdateSourceTrigger=PropertyChanged}" />
+                                    <TextBlock Text="Altitude (mètres)" VerticalAlignment="Center" FontSize="13" />
+                                </DockPanel>
+                                <Button Command="{Binding EnregistrerPositionCommand}" Height="32" Margin="0,8,0,0"
+                                        FontSize="12" FontWeight="Bold" Content="💾 Enregistrer cette position" />
+                            </StackPanel>
+
+                            <TextBlock Text="{Binding MessagePosition}" FontSize="11" TextWrapping="Wrap"
+                                       Margin="0,8,0,0" Opacity="0.8" />
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Bloc des options de démarrage -->
+                    <Border Background="#22888888" CornerRadius="8" Padding="12" Margin="0,14,0,0">
+                        <StackPanel>
+                            <TextBlock Text="Avant de démarrer" FontSize="14" FontWeight="Bold" Margin="0,0,0,8" />
+
+                            <!-- Choix 1 : la monture bouge-t-elle toute seule ?
+                                 (le thème N.I.N.A. affiche les cases à cocher en
+                                 interrupteurs ON/OFF et masque leur texte interne :
+                                 on place donc l'explication DEVANT, à gauche) -->
+                            <DockPanel>
+                                <CheckBox DockPanel.Dock="Right" IsChecked="{Binding MontureGoto}"
+                                          VerticalAlignment="Center" Margin="10,0,0,0" />
+                                <StackPanel VerticalAlignment="Center">
+                                    <TextBlock FontSize="13" FontWeight="Bold" TextWrapping="Wrap"
+                                               Text="Ma monture bouge toute seule (GoTo)" />
+                                    <TextBlock FontSize="11" Opacity="0.6" TextWrapping="Wrap"
+                                               Text="OFF = c'est vous qui tournez la monture à la main entre les photos" />
+                                </StackPanel>
+                            </DockPanel>
+
+                            <!-- Choix 2 : démarrer sur place ou laisser TPPA se positionner -->
+                            <DockPanel Margin="0,12,0,0">
+                                <CheckBox DockPanel.Dock="Right" IsChecked="{Binding DemarrerSurPlace}"
+                                          VerticalAlignment="Center" Margin="10,0,0,0" />
+                                <StackPanel VerticalAlignment="Center">
+                                    <TextBlock FontSize="13" FontWeight="Bold" TextWrapping="Wrap"
+                                               Text="Démarrer sur place" />
+                                    <TextBlock FontSize="11" Opacity="0.6" TextWrapping="Wrap"
+                                               Text="ON = mesurer là où pointe le télescope — OFF = le télescope va d'abord au point de départ" />
+                                </StackPanel>
+                            </DockPanel>
+
+                            <!-- Choix 3 : précision visée en minutes d'arc -->
+                            <TextBlock Margin="0,14,0,2" FontSize="13" TextWrapping="Wrap">
+                                <Run Text="Précision visée : " /><Run FontWeight="Bold" Text="{Binding ToleranceArcmin, StringFormat={}{0:0.0}′, Mode=OneWay}" />
+                            </TextBlock>
+                            <Slider Value="{Binding ToleranceArcmin}" Minimum="0.5" Maximum="10"
+                                    TickFrequency="0.5" IsSnapToTickEnabled="True" />
+                            <TextBlock FontSize="11" Opacity="0.6" TextWrapping="Wrap"
+                                       Text="Quand l'erreur passe sous ce seuil, l'alignement est considéré terminé et s'arrête tout seul. 1,0′ convient très bien pour débuter." />
+
+                            <!-- Section repliée : tous les réglages, pour qui veut aller plus loin -->
+                            <Expander Margin="0,14,0,0" FontSize="13">
+                                <Expander.Header>
+                                    <TextBlock Text="🔧 Tous les réglages (au besoin)" FontWeight="Bold" />
+                                </Expander.Header>
+                                <StackPanel Margin="0,10,0,0">
+                                    <TextBlock FontSize="11" Opacity="0.6" TextWrapping="Wrap" Margin="0,0,0,6"
+                                               Text="Laissez un champ vide pour garder le réglage habituel de TPPA. Ces valeurs sont mémorisées." />
+
+                                    <DockPanel Margin="0,6,0,0">
+                                        <TextBox DockPanel.Dock="Right" Width="90" Text="{Binding PoseTexte, UpdateSourceTrigger=PropertyChanged}" />
+                                        <TextBlock Text="Temps de pose (secondes)" VerticalAlignment="Center" />
+                                    </DockPanel>
+                                    <DockPanel Margin="0,6,0,0">
+                                        <TextBox DockPanel.Dock="Right" Width="90" Text="{Binding GainTexte, UpdateSourceTrigger=PropertyChanged}" />
+                                        <TextBlock Text="Gain de la caméra" VerticalAlignment="Center" />
+                                    </DockPanel>
+                                    <DockPanel Margin="0,6,0,0">
+                                        <TextBox DockPanel.Dock="Right" Width="90" Text="{Binding OffsetTexte, UpdateSourceTrigger=PropertyChanged}" />
+                                        <TextBlock Text="Offset de la caméra" VerticalAlignment="Center" />
+                                    </DockPanel>
+                                    <DockPanel Margin="0,6,0,0">
+                                        <TextBox DockPanel.Dock="Right" Width="90" Text="{Binding BinningTexte, UpdateSourceTrigger=PropertyChanged}" />
+                                        <TextBlock Text="Binning (1, 2, 3…)" VerticalAlignment="Center" />
+                                    </DockPanel>
+                                    <DockPanel Margin="0,6,0,0">
+                                        <TextBox DockPanel.Dock="Right" Width="90" Text="{Binding FiltreTexte, UpdateSourceTrigger=PropertyChanged}" />
+                                        <TextBlock Text="Filtre (nom exact)" VerticalAlignment="Center" />
+                                    </DockPanel>
+                                    <DockPanel Margin="0,6,0,0">
+                                        <TextBox DockPanel.Dock="Right" Width="90" Text="{Binding RayonRechercheTexte, UpdateSourceTrigger=PropertyChanged}" />
+                                        <TextBlock Text="Rayon de recherche (degrés)" VerticalAlignment="Center" />
+                                    </DockPanel>
+                                    <DockPanel Margin="0,6,0,0">
+                                        <TextBox DockPanel.Dock="Right" Width="90" Text="{Binding DistanceTexte, UpdateSourceTrigger=PropertyChanged}" />
+                                        <TextBlock Text="Rotation entre les photos (degrés)" VerticalAlignment="Center" />
+                                    </DockPanel>
+                                    <DockPanel Margin="0,6,0,0">
+                                        <TextBox DockPanel.Dock="Right" Width="90" Text="{Binding VitesseTexte, UpdateSourceTrigger=PropertyChanged}" />
+                                        <TextBlock Text="Vitesse de déplacement" VerticalAlignment="Center" />
+                                    </DockPanel>
+                                    <DockPanel Margin="0,6,0,0">
+                                        <ComboBox DockPanel.Dock="Right" Width="130" SelectedIndex="{Binding SensDeplacementIndex}">
+                                            <ComboBoxItem Content="Réglage TPPA" />
+                                            <ComboBoxItem Content="Vers l'Est" />
+                                            <ComboBoxItem Content="Vers l'Ouest" />
+                                        </ComboBox>
+                                        <TextBlock Text="Sens de rotation" VerticalAlignment="Center" />
+                                    </DockPanel>
+                                </StackPanel>
+                            </Expander>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Alerte (caméra/monture non connectée…) — invisible si vide -->
+                    <TextBlock Text="{Binding Avertissement}" Foreground="#FFB74D" FontSize="13" FontWeight="Bold"
+                               TextWrapping="Wrap" Margin="0,12,0,0" />
+
+                    <Button Command="{Binding DemarrerCommand}" Height="64" Margin="0,16,0,0"
+                            Background="#2E7D32" Foreground="White" FontSize="20" FontWeight="Bold"
+                            Content="▶  DÉMARRER L'ALIGNEMENT" />
+                </StackPanel>
+
+                <!-- ═══════════ PHASE 2 : MESURE EN COURS ═══════════ -->
+                <StackPanel Visibility="{Binding EnMesure, Converter={StaticResource BoolVersVisibilite}}">
+                    <TextBlock FontSize="18" FontWeight="Bold" Text="📷  Mesure en cours…" />
+                    <TextBlock TextWrapping="Wrap" FontSize="14" Margin="0,8,0,0"
+                               Text="Le télescope prend 3 photos pour situer précisément l'axe de la monture. Ne touchez à rien : les consignes s'afficheront ici dans environ une minute." />
+
+                    <!-- Ce que TPPA fait en ce moment (petit détail technique) -->
+                    <TextBlock Text="{Binding DetailTechnique}" FontSize="12" Opacity="0.6" Margin="0,6,0,0" />
+
+                    <!-- Alerte du chien de garde si TPPA ne répond pas -->
+                    <TextBlock Text="{Binding Avertissement}" Foreground="#FFB74D" FontSize="13" FontWeight="Bold"
+                               TextWrapping="Wrap" Margin="0,8,0,0" />
+
+                    <!-- La dernière photo prise par la caméra -->
+                    <Border Background="#111111" CornerRadius="8" Margin="0,12,0,0"
+                            Height="220" ClipToBounds="True">
+                        <Grid>
+                            <TextBlock Text="En attente de la première photo…" FontSize="12" Opacity="0.5"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            <Image Source="{Binding DerniereImage}" Stretch="Uniform" />
+                        </Grid>
+                    </Border>
+
+                    <!-- Qualité de la photo : nombre d'étoiles détectées -->
+                    <TextBlock Text="{Binding NbEtoilesTexte}" FontSize="14" FontWeight="Bold"
+                               HorizontalAlignment="Center" Margin="0,6,0,0" />
+
+                    <Button Command="{Binding ArreterCommand}" Height="40" Margin="0,16,0,0"
+                            FontSize="14" Content="✖  Annuler" />
+                </StackPanel>
+
+                <!-- ═══════════ PHASE 3 : AJUSTEMENT DES VIS ═══════════ -->
+                <StackPanel Visibility="{Binding EnAjustement, Converter={StaticResource BoolVersVisibilite}}">
+
+                    <!-- Le grand cadran : chiffre + niveau, sur fond coloré -->
+                    <Border Background="{Binding CouleurEtat}" CornerRadius="10" Padding="16" Margin="0,0,0,12">
+                        <StackPanel HorizontalAlignment="Center">
+                            <TextBlock Text="{Binding ErreurTotaleTexte}" Foreground="White"
+                                       FontSize="52" FontWeight="Bold" HorizontalAlignment="Center" />
+                            <TextBlock Text="{Binding NiveauTexte}" Foreground="White"
+                                       FontSize="24" HorizontalAlignment="Center" />
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Les deux cartes "vis" : seule la carte active est en pleine
+                         couleur, l'autre est estompée -->
+                    <UniformGrid Columns="2">
+
+                        <!-- Carte azimut = vis du bas (gauche-droite) -->
+                        <Border CornerRadius="8" Padding="10" Margin="0,0,6,0" Background="#33888888">
+                            <Border.Style>
+                                <Style TargetType="Border">
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding AzimutActif}" Value="False">
+                                            <Setter Property="Opacity" Value="0.35" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Border.Style>
+                            <StackPanel>
+                                <TextBlock Text="Vis du bas" FontSize="15" FontWeight="Bold" HorizontalAlignment="Center" />
+                                <TextBlock Text="(gauche-droite)" FontSize="12" HorizontalAlignment="Center" />
+                                <TextBlock Text="{Binding FlecheAzimut}" FontSize="64"
+                                           HorizontalAlignment="Center" Margin="0,4" />
+                                <TextBlock Text="{Binding ConsigneAzimut}" FontSize="13" FontWeight="Bold"
+                                           TextWrapping="Wrap" TextAlignment="Center" HorizontalAlignment="Center" />
+                                <TextBlock Text="{Binding AzimutTexte}" FontSize="18"
+                                           HorizontalAlignment="Center" Margin="0,4,0,0" />
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Carte altitude = vis du haut (monter-descendre) -->
+                        <Border CornerRadius="8" Padding="10" Margin="6,0,0,0" Background="#33888888">
+                            <Border.Style>
+                                <Style TargetType="Border">
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding AltitudeActif}" Value="False">
+                                            <Setter Property="Opacity" Value="0.35" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Border.Style>
+                            <StackPanel>
+                                <TextBlock Text="Vis du haut" FontSize="15" FontWeight="Bold" HorizontalAlignment="Center" />
+                                <TextBlock Text="(monter-descendre)" FontSize="12" HorizontalAlignment="Center" />
+                                <TextBlock Text="{Binding FlecheAltitude}" FontSize="64"
+                                           HorizontalAlignment="Center" Margin="0,4" />
+                                <TextBlock Text="{Binding ConsigneAltitude}" FontSize="13" FontWeight="Bold"
+                                           TextWrapping="Wrap" TextAlignment="Center" HorizontalAlignment="Center" />
+                                <TextBlock Text="{Binding AltitudeTexte}" FontSize="18"
+                                           HorizontalAlignment="Center" Margin="0,4,0,0" />
+                            </StackPanel>
+                        </Border>
+                    </UniformGrid>
+
+                    <!-- La dernière photo prise par la caméra -->
+                    <Border Background="#111111" CornerRadius="8" Margin="0,12,0,0"
+                            Height="220" ClipToBounds="True">
+                        <Image Source="{Binding DerniereImage}" Stretch="Uniform" />
+                    </Border>
+
+                    <!-- Qualité de la photo : nombre d'étoiles détectées -->
+                    <TextBlock Text="{Binding NbEtoilesTexte}" FontSize="14" FontWeight="Bold"
+                               HorizontalAlignment="Center" Margin="0,6,0,0" />
+
+                    <TextBlock TextWrapping="Wrap" FontSize="12" Margin="0,10,0,0" Opacity="0.7"
+                               Text="Tournez doucement la vis indiquée, puis attendez quelques secondes : les chiffres se mettent à jour automatiquement après chaque photo." />
+
+                    <Button Command="{Binding ArreterCommand}" Height="40" Margin="0,12,0,0"
+                            FontSize="14" Content="■  TERMINER" />
+                </StackPanel>
+
+                <!-- Petite mention de la source des mesures -->
+                <TextBlock FontSize="11" Opacity="0.5" Margin="0,14,0,0" TextWrapping="Wrap"
+                           Text="Les mesures proviennent du plugin Three Point Polar Alignment (TPPA)." />
+            </StackPanel>
+        </ScrollViewer>
+    </DataTemplate>
+
+</ResourceDictionary>

@@ -1,0 +1,406 @@
+<!-- ============================================================
+     L'écran du panneau « Séquenceur simplifié ».
+
+     Règle N.I.N.A. : pour un panneau de l'onglet imagerie, le gabarit
+     doit s'appeler "<Nom complet de la classe cerveau>_Dockable".
+     Ici : "ModeDebutant.Sequenceur.SequenceurDockableVM_Dockable".
+
+     Tous les {Binding ...} se branchent sur les propriétés du "cerveau"
+     (SequenceurDockableVM.cs).
+     ============================================================ -->
+<ResourceDictionary
+    x:Class="ModeDebutant.Sequenceur.SequenceurDockableTemplates"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!-- Petit outil de conversion : vrai/faux -> visible/caché -->
+    <BooleanToVisibilityConverter x:Key="BoolVersVisibiliteSeq" />
+
+    <DataTemplate x:Key="ModeDebutant.Sequenceur.SequenceurDockableVM_Dockable">
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <StackPanel Margin="12" MaxWidth="460">
+
+                <!-- ═══════════ PHASE 1 : PRÉPARATION ═══════════ -->
+                <StackPanel Visibility="{Binding EnPreparation, Converter={StaticResource BoolVersVisibiliteSeq}}">
+
+                    <TextBlock TextWrapping="Wrap" FontSize="14"
+                               Text="Prêt à photographier ! Choisissez une cible (ou visez-la vous-même), réglez la série, puis appuyez sur le gros bouton." />
+
+                    <!-- Premier geste de la soirée : repartir d'une feuille
+                         blanche, et au besoin revoir le bilan d'hier -->
+                    <Button Command="{Binding NouvelleSessionCommand}" Height="32" Margin="0,10,0,0" FontSize="12"
+                            Content="🧹 Nouvelle soirée — repartir à zéro (réglages conservés)" />
+                    <Button Command="{Binding OuvrirBilanCommand}" Height="28" Margin="0,6,0,0" FontSize="11"
+                            Content="📊 Revoir le bilan de la dernière série"
+                            Visibility="{Binding BilanDisponible, Converter={StaticResource BoolVersVisibiliteSeq}}" />
+
+                    <!-- La météo : une INFO discrète, pas une étape -->
+                    <Border CornerRadius="6" Padding="8,6" Margin="0,10,0,0" Background="#1A888888">
+                        <Border.Style>
+                            <Style TargetType="Border">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding MeteoTexte}" Value="">
+                                        <Setter Property="Visibility" Value="Collapsed" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                        <DockPanel>
+                            <Button DockPanel.Dock="Right" Command="{Binding ActualiserMeteoCommand}"
+                                    Width="26" Height="22" FontSize="10" Content="⟳"
+                                    ToolTip="Actualiser les prévisions" VerticalAlignment="Top" />
+                            <StackPanel>
+                                <TextBlock FontSize="12" TextWrapping="Wrap">
+                                    <Run Text="☁️ " /><Run Text="{Binding MeteoTexte, Mode=OneWay}" FontWeight="SemiBold" />
+                                </TextBlock>
+                                <TextBlock Text="{Binding MeteoFrise}" FontSize="11" Opacity="0.6"
+                                           TextWrapping="Wrap" Margin="0,2,0,0" />
+                            </StackPanel>
+                        </DockPanel>
+                    </Border>
+
+                    <!-- ── Étape 1 : la cible ── -->
+                    <Border Background="#22888888" CornerRadius="8" Padding="12" Margin="0,14,0,0">
+                        <StackPanel>
+                            <TextBlock Text="1 · La cible" FontSize="14" FontWeight="Bold" />
+                            <TextBlock FontSize="11" Opacity="0.6" TextWrapping="Wrap" Margin="0,2,0,8"
+                                       Text="Facultatif : sans cible choisie, les photos se prennent là où pointe le télescope." />
+
+                            <DockPanel>
+                                <Button DockPanel.Dock="Right" Width="110" Height="30" Margin="8,0,0,0"
+                                        Command="{Binding RechercherCommand}" Content="🔍 Chercher" />
+                                <TextBox Text="{Binding CibleTexte, UpdateSourceTrigger=PropertyChanged}"
+                                         VerticalContentAlignment="Center" FontSize="14" Height="30" />
+                            </DockPanel>
+                            <TextBlock FontSize="11" Opacity="0.6" Margin="0,4,0,0" TextWrapping="Wrap"
+                                       Text="Exemples : M31, M42, NGC 7000, Andromeda…" />
+
+                            <!-- Le bouton magique : 5 cibles idéales pour ce soir,
+                                 calculées pour VOTRE position (hauteur, Lune, brillance) -->
+                            <Button Command="{Binding ProposerCiblesCommand}" Height="36" Margin="0,10,0,0"
+                                    FontSize="13" FontWeight="Bold"
+                                    Content="🌌 Pas d'idée ? Proposer des cibles pour ce soir" />
+
+                            <!-- La liste des objets trouvés (cachée tant qu'elle est vide) -->
+                            <ListBox ItemsSource="{Binding Resultats}" SelectedItem="{Binding CibleChoisie}"
+                                     Margin="0,8,0,0" MaxHeight="170" FontSize="13"
+                                     DisplayMemberPath="Description"
+                                     ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                                <ListBox.Style>
+                                    <Style TargetType="ListBox">
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding Resultats.Count}" Value="0">
+                                                <Setter Property="Visibility" Value="Collapsed" />
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </ListBox.Style>
+                            </ListBox>
+
+                            <!-- Résultat de la recherche / état du pointage -->
+                            <TextBlock Text="{Binding MessageCible}" FontSize="12" FontWeight="Bold"
+                                       TextWrapping="Wrap" Margin="0,8,0,0" />
+
+                            <Button Command="{Binding PointerCommand}" IsEnabled="{Binding CibleEstChoisie}"
+                                    Height="38" Margin="0,10,0,0" FontSize="14" FontWeight="Bold"
+                                    Content="🔭 Pointer le télescope sur la cible" />
+                        </StackPanel>
+                    </Border>
+
+                    <!-- ── Étape 2 : la série ── -->
+                    <Border Background="#22888888" CornerRadius="8" Padding="12" Margin="0,12,0,0">
+                        <StackPanel>
+                            <TextBlock Text="2 · La série de photos" FontSize="14" FontWeight="Bold" Margin="0,0,0,8" />
+
+                            <DockPanel>
+                                <TextBox DockPanel.Dock="Right" Width="90" Height="28" FontSize="14"
+                                         VerticalContentAlignment="Center" TextAlignment="Center"
+                                         Text="{Binding NbPhotosTexte, UpdateSourceTrigger=PropertyChanged}" />
+                                <StackPanel VerticalAlignment="Center">
+                                    <TextBlock FontSize="13" FontWeight="Bold" Text="Nombre de photos" />
+                                    <TextBlock FontSize="11" Opacity="0.6" TextWrapping="Wrap"
+                                               Text="Plus il y en a, plus l'image finale sera propre" />
+                                </StackPanel>
+                            </DockPanel>
+
+                            <DockPanel Margin="0,10,0,0">
+                                <TextBox DockPanel.Dock="Right" Width="90" Height="28" FontSize="14"
+                                         VerticalContentAlignment="Center" TextAlignment="Center"
+                                         Text="{Binding PoseSecondesTexte, UpdateSourceTrigger=PropertyChanged}" />
+                                <StackPanel VerticalAlignment="Center">
+                                    <TextBlock FontSize="13" FontWeight="Bold" Text="Temps de pose (secondes)" />
+                                    <TextBlock FontSize="11" Opacity="0.6" TextWrapping="Wrap"
+                                               Text="30 s est un bon départ avec un suivi correct" />
+                                </StackPanel>
+                            </DockPanel>
+
+                            <DockPanel Margin="0,10,0,0">
+                                <TextBox DockPanel.Dock="Right" Width="90" Height="28" FontSize="14"
+                                         VerticalContentAlignment="Center" TextAlignment="Center"
+                                         Text="{Binding GainSerieTexte, UpdateSourceTrigger=PropertyChanged}" />
+                                <StackPanel VerticalAlignment="Center">
+                                    <TextBlock FontSize="13" FontWeight="Bold" Text="Gain / ISO" />
+                                    <TextBlock FontSize="11" Opacity="0.6" TextWrapping="Wrap"
+                                               Text="Vide = garder le réglage actuel de la caméra" />
+                                </StackPanel>
+                            </DockPanel>
+
+                            <!-- Interrupteurs (libellés à gauche : le thème N.I.N.A.
+                                 masque le texte placé dans les cases à cocher) -->
+                            <DockPanel Margin="0,14,0,0">
+                                <CheckBox DockPanel.Dock="Right" IsChecked="{Binding DitherActif}"
+                                          VerticalAlignment="Center" Margin="10,0,0,0" />
+                                <StackPanel VerticalAlignment="Center">
+                                    <TextBlock FontSize="13" FontWeight="Bold" TextWrapping="Wrap"
+                                               Text="Dithering (décaler un peu entre les photos)" />
+                                    <TextBlock FontSize="11" Opacity="0.6" TextWrapping="Wrap"
+                                               Text="Améliore l'empilement. Nécessite le guidage — ignoré sinon" />
+                                </StackPanel>
+                            </DockPanel>
+
+                            <DockPanel Margin="0,10,0,0">
+                                <CheckBox DockPanel.Dock="Right" IsChecked="{Binding FlipActif}"
+                                          VerticalAlignment="Center" Margin="10,0,0,0" />
+                                <StackPanel VerticalAlignment="Center">
+                                    <TextBlock FontSize="13" FontWeight="Bold" TextWrapping="Wrap"
+                                               Text="Retournement au méridien automatique" />
+                                    <TextBlock FontSize="11" Opacity="0.6" TextWrapping="Wrap"
+                                               Text="Si la cible passe plein sud, la monture se retourne toute seule" />
+                                </StackPanel>
+                            </DockPanel>
+
+                            <DockPanel Margin="0,10,0,0">
+                                <CheckBox DockPanel.Dock="Right" IsChecked="{Binding DarksActif}"
+                                          VerticalAlignment="Center" Margin="10,0,0,0" />
+                                <StackPanel VerticalAlignment="Center">
+                                    <TextBlock FontSize="13" FontWeight="Bold" TextWrapping="Wrap"
+                                               Text="Darks à la fin de la série" />
+                                    <TextBlock FontSize="11" Opacity="0.6" TextWrapping="Wrap"
+                                               Text="On vous demandera de couvrir le télescope, puis les images de calibration s'enchaînent toutes seules" />
+                                </StackPanel>
+                            </DockPanel>
+
+                            <!-- Section repliée : tous les réglages, pour qui veut aller plus loin -->
+                            <Expander Margin="0,14,0,0" FontSize="13">
+                                <Expander.Header>
+                                    <TextBlock Text="🔧 Tous les réglages (au besoin)" FontWeight="Bold" />
+                                </Expander.Header>
+                                <StackPanel Margin="0,10,0,0">
+                                    <TextBlock FontSize="11" Opacity="0.6" TextWrapping="Wrap" Margin="0,0,0,6"
+                                               Text="Laissez un champ vide pour garder le réglage habituel. Ces valeurs sont mémorisées." />
+
+                                    <DockPanel Margin="0,6,0,0">
+                                        <TextBox DockPanel.Dock="Right" Width="90" Text="{Binding OffsetSerieTexte, UpdateSourceTrigger=PropertyChanged}" />
+                                        <TextBlock Text="Offset de la caméra" VerticalAlignment="Center" />
+                                    </DockPanel>
+                                    <DockPanel Margin="0,6,0,0">
+                                        <TextBox DockPanel.Dock="Right" Width="90" Text="{Binding BinningSerieTexte, UpdateSourceTrigger=PropertyChanged}" />
+                                        <TextBlock Text="Binning (1, 2, 3…)" VerticalAlignment="Center" />
+                                    </DockPanel>
+                                    <DockPanel Margin="0,6,0,0">
+                                        <TextBox DockPanel.Dock="Right" Width="90" Text="{Binding FiltreSerieTexte, UpdateSourceTrigger=PropertyChanged}" />
+                                        <TextBlock Text="Filtre (nom exact)" VerticalAlignment="Center" />
+                                    </DockPanel>
+                                    <DockPanel Margin="0,6,0,0">
+                                        <TextBox DockPanel.Dock="Right" Width="90" Text="{Binding DitherFrequenceTexte, UpdateSourceTrigger=PropertyChanged}" />
+                                        <TextBlock Text="Dithering : toutes les X photos" VerticalAlignment="Center" />
+                                    </DockPanel>
+                                    <DockPanel Margin="0,6,0,0">
+                                        <TextBox DockPanel.Dock="Right" Width="90" Text="{Binding NbDarksTexte, UpdateSourceTrigger=PropertyChanged}" />
+                                        <TextBlock Text="Nombre de darks" VerticalAlignment="Center" />
+                                    </DockPanel>
+                                </StackPanel>
+                            </Expander>
+
+                            <!-- Durée totale estimée, mise à jour en direct -->
+                            <TextBlock Text="{Binding DureeEstimeeTexte}" FontSize="12" FontWeight="Bold"
+                                       Opacity="0.8" TextWrapping="Wrap" Margin="0,12,0,0" />
+                        </StackPanel>
+                    </Border>
+
+                    <!-- ── Alertes téléphone (carte repliée : à régler une fois) ── -->
+                    <Border Background="#22888888" CornerRadius="8" Padding="12" Margin="0,12,0,0">
+                        <Expander FontSize="13">
+                            <Expander.Header>
+                                <StackPanel>
+                                    <TextBlock Text="📱 Alertes sur le téléphone (en option)" FontSize="14" FontWeight="Bold" />
+                                    <TextBlock FontSize="11" Opacity="0.6" TextWrapping="Wrap"
+                                               Text="À régler une seule fois : soyez prévenu au chaud — série lancée, photo douteuse, série terminée" />
+                                </StackPanel>
+                            </Expander.Header>
+                            <StackPanel Margin="0,10,0,0">
+                                <TextBlock FontSize="12" TextWrapping="Wrap" Opacity="0.8"
+                                           Text="Une seule fois : installez l'application gratuite « ntfy » (Android ou iPhone), ouvrez-la, « Ajouter un abonnement », et tapez exactement le nom de canal ci-dessous. C'est tout." />
+
+                                <DockPanel Margin="0,10,0,0">
+                                    <TextBox DockPanel.Dock="Right" Width="200" FontSize="12"
+                                             Text="{Binding CanalNtfy, UpdateSourceTrigger=PropertyChanged}" />
+                                    <TextBlock Text="Nom du canal" VerticalAlignment="Center" FontSize="13" />
+                                </DockPanel>
+                                <TextBlock FontSize="11" Opacity="0.6" TextWrapping="Wrap" Margin="0,4,0,0"
+                                           Text="Gardez ce nom pour vous : quiconque le connaît peut lire vos alertes (elles passent par le service public ntfy.sh)." />
+
+                                <DockPanel Margin="0,10,0,0">
+                                    <CheckBox DockPanel.Dock="Right" IsChecked="{Binding AlerteTelActive}"
+                                              VerticalAlignment="Center" Margin="10,0,0,0" />
+                                    <StackPanel VerticalAlignment="Center">
+                                        <TextBlock FontSize="13" FontWeight="Bold" Text="Activer les alertes" />
+                                        <TextBlock FontSize="11" Opacity="0.6" TextWrapping="Wrap"
+                                                   Text="Envoyées seulement quand la situation change — pas à chaque photo" />
+                                    </StackPanel>
+                                </DockPanel>
+
+                                <Button Command="{Binding TesterAlerteCommand}" Height="32" Margin="0,10,0,0"
+                                        FontSize="12" FontWeight="Bold" Content="📨 Envoyer une notification d'essai" />
+                                <TextBlock Text="{Binding MessageAlerteTel}" FontSize="11" TextWrapping="Wrap"
+                                           Margin="0,6,0,0" Opacity="0.8" />
+                            </StackPanel>
+                        </Expander>
+                    </Border>
+
+                    <!-- Alerte (caméra non connectée…) — invisible si vide -->
+                    <TextBlock Text="{Binding Avertissement}" Foreground="#FFB74D" FontSize="13" FontWeight="Bold"
+                               TextWrapping="Wrap" Margin="0,12,0,0" />
+
+                    <Button Command="{Binding DemarrerCommand}" Height="64" Margin="0,16,0,0"
+                            Background="#2E7D32" Foreground="White" FontSize="20" FontWeight="Bold"
+                            Content="▶  LANCER LA SÉRIE" />
+
+                    <TextBlock FontSize="11" Opacity="0.5" Margin="0,10,0,0" TextWrapping="Wrap"
+                               Text="Le bouton fabrique une vraie séquence dans le séquenceur avancé de N.I.N.A. et la lance : les photos sont enregistrées comme d'habitude, dans le dossier d'images de N.I.N.A." />
+                </StackPanel>
+
+                <!-- ═══════════ PHASE 2 : SÉRIE EN COURS (photos ou darks) ═══════════ -->
+                <StackPanel Visibility="{Binding EnCours, Converter={StaticResource BoolVersVisibiliteSeq}}">
+                    <TextBlock FontSize="18" FontWeight="Bold" Text="{Binding TitreEnCours}" />
+
+                    <!-- L'avancement en gros -->
+                    <TextBlock Text="{Binding ProgressionTexte}" FontSize="16" FontWeight="Bold" Margin="0,10,0,0" />
+                    <ProgressBar Value="{Binding PhotosFaites, Mode=OneWay}" Maximum="{Binding NbPhotosTotal, Mode=OneWay}"
+                                 Height="14" Margin="0,6,0,0" />
+                    <TextBlock Text="{Binding TempsRestantTexte}" FontSize="12" Opacity="0.7" Margin="0,4,0,0" TextWrapping="Wrap" />
+
+                    <!-- Ce qui est actif pendant la série -->
+                    <TextBlock Text="{Binding NotesSerie}" FontSize="11" Opacity="0.6" Margin="0,6,0,0" TextWrapping="Wrap" />
+
+                    <!-- La dernière photo prise par la caméra -->
+                    <Border Background="#111111" CornerRadius="8" Margin="0,12,0,0"
+                            Height="220" ClipToBounds="True">
+                        <Grid>
+                            <TextBlock Text="En attente de la première photo…" FontSize="12" Opacity="0.5"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            <Image Source="{Binding DerniereImage}" Stretch="Uniform" />
+                        </Grid>
+                    </Border>
+
+                    <!-- Qualité : étoiles + mise au point (HFR) -->
+                    <TextBlock Text="{Binding NbEtoilesTexte}" FontSize="14" FontWeight="Bold"
+                               HorizontalAlignment="Center" Margin="0,6,0,0" TextWrapping="Wrap" />
+
+                    <!-- Le verdict : photo validée / à surveiller (bandeau coloré,
+                         caché tant qu'aucune photo n'a été jugée) -->
+                    <Border Background="{Binding CouleurVerdict}" CornerRadius="6" Padding="8,6" Margin="0,8,0,0">
+                        <Border.Style>
+                            <Style TargetType="Border">
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding VerdictPhoto}" Value="">
+                                        <Setter Property="Visibility" Value="Collapsed" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Border.Style>
+                        <TextBlock Text="{Binding VerdictPhoto}" Foreground="White" FontSize="14" FontWeight="Bold"
+                                   TextWrapping="Wrap" HorizontalAlignment="Center" TextAlignment="Center" />
+                    </Border>
+
+                    <TextBlock TextWrapping="Wrap" FontSize="12" Margin="0,10,0,0" Opacity="0.7"
+                               Text="Vous pouvez laisser tourner : tout est automatique. Le verdict compare chaque photo aux meilleures de la série : au moindre doute (netteté en baisse, étoiles qui disparaissent), il passe à l'orange." />
+
+                    <Button Command="{Binding ArreterCommand}" Height="48" Margin="0,14,0,0"
+                            Background="#C62828" Foreground="White" FontSize="16" FontWeight="Bold"
+                            Content="■  ARRÊTER LA SÉRIE" />
+
+                    <Button Command="{Binding VoirSequenceurCommand}" Height="30" Margin="0,8,0,0" FontSize="12"
+                            Content="Voir le détail dans le séquenceur avancé" />
+
+                    <!-- Bilan provisoire à la demande, sans attendre la fin -->
+                    <Button Command="{Binding GenererBilanCommand}" Height="30" Margin="0,6,0,0" FontSize="12"
+                            Content="📊 Générer le bilan provisoire (état actuel)" />
+                    <TextBlock Text="{Binding MessageBilan}" FontSize="11" Opacity="0.7"
+                               TextWrapping="Wrap" Margin="0,4,0,0" />
+                </StackPanel>
+
+                <!-- ═══════════ ESCALE : PLACE AUX DARKS ═══════════ -->
+                <StackPanel Visibility="{Binding EnAttenteDarks, Converter={StaticResource BoolVersVisibiliteSeq}}">
+
+                    <Border Background="#2E7D32" CornerRadius="10" Padding="16">
+                        <StackPanel>
+                            <TextBlock Text="✅ Photos terminées !" Foreground="White"
+                                       FontSize="22" FontWeight="Bold" TextWrapping="Wrap" />
+                            <TextBlock Text="{Binding AttenteDarksTexte}" Foreground="White"
+                                       FontSize="14" TextWrapping="Wrap" Margin="0,8,0,0" />
+                        </StackPanel>
+                    </Border>
+
+                    <Border Background="#22888888" CornerRadius="8" Padding="12" Margin="0,12,0,0">
+                        <StackPanel>
+                            <TextBlock Text="🌡️ C'est quoi, les darks ?" FontSize="14" FontWeight="Bold" />
+                            <TextBlock FontSize="12" TextWrapping="Wrap" Opacity="0.8" Margin="0,6,0,0"
+                                       Text="Des photos prises dans le noir complet, avec exactement les mêmes réglages que vos photos. Elles enregistrent le « bruit » propre à votre capteur, que le logiciel d'empilement (Siril, DeepSkyStacker…) soustraira ensuite de vos images. Résultat : un fond de ciel bien plus propre.&#10;&#10;1. Mettez le bouchon sur le télescope (ou couvrez-le complètement)&#10;2. Ne touchez à rien d'autre&#10;3. Cliquez sur le bouton — et retournez au chaud, le téléphone vous préviendra" />
+                        </StackPanel>
+                    </Border>
+
+                    <Button Command="{Binding LancerDarksCommand}" Height="64" Margin="0,16,0,0"
+                            Background="#2E7D32" Foreground="White" FontSize="18" FontWeight="Bold"
+                            Content="🌡️  TÉLESCOPE COUVERT — LANCER LES DARKS" />
+
+                    <Button Command="{Binding PasserDarksCommand}" Height="34" Margin="0,8,0,0" FontSize="12"
+                            Content="Non merci — terminer sans darks" />
+                </StackPanel>
+
+                <!-- ═══════════ PHASE 3 : BILAN ═══════════ -->
+                <StackPanel Visibility="{Binding EstTerminee, Converter={StaticResource BoolVersVisibiliteSeq}}">
+
+                    <Border Background="{Binding CouleurBilan}" CornerRadius="10" Padding="16">
+                        <StackPanel>
+                            <TextBlock Text="{Binding TitreBilan}" Foreground="White"
+                                       FontSize="22" FontWeight="Bold" TextWrapping="Wrap" />
+                            <TextBlock Text="{Binding ResumeBilan}" Foreground="White"
+                                       FontSize="14" TextWrapping="Wrap" Margin="0,8,0,0" />
+                        </StackPanel>
+                    </Border>
+
+                    <!-- La dernière photo de la série, en souvenir -->
+                    <Border Background="#111111" CornerRadius="8" Margin="0,12,0,0"
+                            Height="220" ClipToBounds="True">
+                        <Image Source="{Binding DerniereImage}" Stretch="Uniform" />
+                    </Border>
+
+                    <!-- Qualité de la dernière photo (étoiles + HFR) -->
+                    <TextBlock Text="{Binding NbEtoilesTexte}" FontSize="13" FontWeight="Bold"
+                               HorizontalAlignment="Center" Margin="0,6,0,0" TextWrapping="Wrap" />
+
+                    <!-- Le bilan de la nuit (caché si aucun rapport n'a pu être écrit) -->
+                    <Button Command="{Binding OuvrirBilanCommand}" Height="44" Margin="0,12,0,0"
+                            FontSize="14" FontWeight="Bold"
+                            Content="📊  Ouvrir le bilan de la nuit"
+                            Visibility="{Binding BilanDisponible, Converter={StaticResource BoolVersVisibiliteSeq}}" />
+                    <TextBlock Text="{Binding BilanFichier}" FontSize="10" Opacity="0.5" TextWrapping="Wrap" Margin="0,4,0,0"
+                               Visibility="{Binding BilanDisponible, Converter={StaticResource BoolVersVisibiliteSeq}}" />
+
+                    <TextBlock TextWrapping="Wrap" FontSize="12" Margin="0,10,0,0" Opacity="0.7"
+                               Text="Prochaine étape : empilez vos photos avec un logiciel gratuit comme Siril ou DeepSkyStacker pour révéler votre image finale." />
+
+                    <Button Command="{Binding NouvelleSerieCommand}" Height="48" Margin="0,14,0,0"
+                            FontSize="16" FontWeight="Bold" Content="↩  Préparer une nouvelle série" />
+
+                    <!-- Repartir d'une feuille blanche (cible, verdicts, bilan...) -->
+                    <Button Command="{Binding NouvelleSessionCommand}" Height="30" Margin="0,8,0,0" FontSize="12"
+                            Content="🧹 Nouvelle session — tout remettre à zéro (réglages conservés)" />
+                </StackPanel>
+
+            </StackPanel>
+        </ScrollViewer>
+    </DataTemplate>
+
+</ResourceDictionary>

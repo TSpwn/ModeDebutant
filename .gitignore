@@ -1,0 +1,9 @@
+# Dossiers générés par la compilation — jamais à versionner
+bin/
+obj/
+
+# Outillage local de session (jamais publie)
+.claude/
+CLAUDE.md
+.claudeignore
+docs/

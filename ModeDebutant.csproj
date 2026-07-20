@@ -1,0 +1,46 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- ============================================================
+       Fichier de projet : décrit COMMENT compiler le plugin.
+       C'est l'équivalent d'une "recette de cuisine" pour le compilateur.
+       ============================================================ -->
+
+  <PropertyGroup>
+    <!-- Le plugin cible .NET 8 pour Windows, comme N.I.N.A. 3.x -->
+    <TargetFramework>net8.0-windows</TargetFramework>
+
+    <!-- "Library" = on fabrique une DLL (brique logicielle), pas un .exe -->
+    <OutputType>Library</OutputType>
+
+    <!-- Nom technique du plugin (sans accents pour éviter les ennuis) -->
+    <RootNamespace>ModeDebutant</RootNamespace>
+    <AssemblyName>ModeDebutant</AssemblyName>
+
+    <!-- La "carte d'identité" du plugin est écrite à la main dans
+         Properties\AssemblyInfo.cs ; on demande au compilateur de ne pas
+         en générer une automatiquement qui entrerait en conflit -->
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+
+    <!-- WPF = la technologie d'interface graphique utilisée par N.I.N.A.
+         (fenêtres, boutons...). Nécessaire pour nos futurs écrans. -->
+    <UseWPF>true</UseWPF>
+    <ImportWindowsDesktopTargets>true</ImportWindowsDesktopTargets>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- La brique officielle N.I.N.A. pour les plugins.
+         Version 3.2.0.9001 = EXACTEMENT la version de votre N.I.N.A.,
+         c'est la garantie de compatibilité. -->
+    <PackageReference Include="NINA.Plugin" Version="3.2.0.9001" />
+  </ItemGroup>
+
+  <!-- Après chaque compilation réussie, la DLL est copiée automatiquement
+       dans le dossier où N.I.N.A. cherche ses plugins.
+       Il suffit donc de compiler, puis de (re)démarrer N.I.N.A. -->
+  <Target Name="DeployToNina" AfterTargets="PostBuildEvent">
+    <MakeDir Directories="$(LOCALAPPDATA)\NINA\Plugins\3.0.0\$(TargetName)" />
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(LOCALAPPDATA)\NINA\Plugins\3.0.0\$(TargetName)" />
+  </Target>
+
+</Project>
