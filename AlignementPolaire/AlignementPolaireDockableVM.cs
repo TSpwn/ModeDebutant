@@ -487,8 +487,9 @@ namespace ModeDebutant.AlignementPolaire {
         private double dernierAzimutMonture = double.NaN;
         private double derniereHauteurMonture = double.NaN;
 
-        /// <summary>false = monture non connectée, le bandeau disparaît.</summary>
-        public bool MontureVisible { get; private set; }
+        /// <summary>Toujours vrai : le bandeau reste affiché même monture
+        /// déconnectée (sinon on croit que la fonction n'existe pas).</summary>
+        public bool MontureVisible => true;
 
         /// <summary>« Az 123,4° · Haut 45,6° »</summary>
         public string MonturePositionTexte { get; private set; } = "";
@@ -510,12 +511,16 @@ namespace ModeDebutant.AlignementPolaire {
         private void RafraichirMonture() {
             var monture = telescopeMediator.GetInfo();
             if (!monture.Connected) {
-                if (MontureVisible) {
-                    MontureVisible = false;
-                    RaisePropertyChanged(nameof(MontureVisible));
-                }
+                // On l'affiche quand même : un bandeau qui disparaît laisse
+                // croire que la fonction n'existe pas
+                MonturePositionTexte = "—";
+                MontureEtatTexte = "○ non connectée — onglet Équipement > Monture";
+                CouleurMonture = BrosseGrisClair;
                 dernierAzimutMonture = double.NaN;
                 derniereHauteurMonture = double.NaN;
+                RaisePropertyChanged(nameof(MonturePositionTexte));
+                RaisePropertyChanged(nameof(MontureEtatTexte));
+                RaisePropertyChanged(nameof(CouleurMonture));
                 return;
             }
 
@@ -548,8 +553,6 @@ namespace ModeDebutant.AlignementPolaire {
                 CouleurMonture = BrosseOrangeClair;
             }
 
-            MontureVisible = true;
-            RaisePropertyChanged(nameof(MontureVisible));
             RaisePropertyChanged(nameof(MonturePositionTexte));
             RaisePropertyChanged(nameof(MontureEtatTexte));
             RaisePropertyChanged(nameof(CouleurMonture));
