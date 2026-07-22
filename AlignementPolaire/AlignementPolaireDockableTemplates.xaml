@@ -20,6 +20,21 @@
         <ScrollViewer VerticalScrollBarVisibility="Auto">
             <StackPanel Margin="12" MaxWidth="460">
 
+                <!-- ── La monture en direct : position + bouge / bouge pas —
+                     visible dans toutes les phases dès qu'elle est connectée ── -->
+                <Border CornerRadius="6" Padding="8,6" Margin="0,0,0,10" Background="#1A888888"
+                        Visibility="{Binding MontureVisible, Converter={StaticResource BoolVersVisibilite}}">
+                    <StackPanel>
+                        <DockPanel>
+                            <TextBlock DockPanel.Dock="Right" Text="{Binding MonturePositionTexte}"
+                                       FontSize="12" Opacity="0.7" VerticalAlignment="Center" />
+                            <TextBlock Text="🔭 Monture" FontSize="12" FontWeight="Bold" VerticalAlignment="Center" />
+                        </DockPanel>
+                        <TextBlock Text="{Binding MontureEtatTexte}" Foreground="{Binding CouleurMonture}"
+                                   FontSize="12" FontWeight="Bold" TextWrapping="Wrap" Margin="0,2,0,0" />
+                    </StackPanel>
+                </Border>
+
                 <!-- ═══════════ PHASE 1 : EN ATTENTE ═══════════ -->
                 <StackPanel Visibility="{Binding EnAttente, Converter={StaticResource BoolVersVisibilite}}">
 

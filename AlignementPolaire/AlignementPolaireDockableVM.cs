@@ -111,6 +111,7 @@ namespace ModeDebutant.AlignementPolaire {
             CommencerReglageCommand = new CommandeSimple(() => _ = CommencerReglage());
             ArreterReglageCommand = new CommandeSimple(ArreterReglage);
             RafraichirMateriel();
+            SurveillerMonture();
 
             // La position du lieu d'observation : affichée en clair, car tout
             // en dépend (consignes nord/sud, calculs de TPPA). Si elle change
@@ -470,6 +471,88 @@ namespace ModeDebutant.AlignementPolaire {
             RaisePropertyChanged(nameof(ModificationMaterielOuverte));
             RaisePropertyChanged(nameof(MessageMateriel));
             RafraichirMateriel();
+        }
+
+        // ------------------------------------------------------------------
+        // La monture en direct : position + « est-ce qu'elle bouge ? »
+        //
+        // Pendant l'alignement (et après un Stop), on ne sait jamais si la
+        // monture travaille encore. Ce bandeau lit sa position chaque
+        // seconde et croise DEUX indices : ce que le pilote déclare
+        // (Slewing) et le mouvement réel de la position — si l'azimut ou la
+        // hauteur changent vraiment, c'est qu'elle bouge, point.
+        // ------------------------------------------------------------------
+
+        private System.Windows.Threading.DispatcherTimer montureMinuteur;
+        private double dernierAzimutMonture = double.NaN;
+        private double derniereHauteurMonture = double.NaN;
+
+        /// <summary>false = monture non connectée, le bandeau disparaît.</summary>
+        public bool MontureVisible { get; private set; }
+
+        /// <summary>« Az 123,4° · Haut 45,6° »</summary>
+        public string MonturePositionTexte { get; private set; } = "";
+
+        /// <summary>« 🟢 EN MOUVEMENT » / « suivi actif » / « immobile »…</summary>
+        public string MontureEtatTexte { get; private set; } = "";
+
+        public Brush CouleurMonture { get; private set; } = BrosseGris;
+
+        private void SurveillerMonture() {
+            montureMinuteur = new System.Windows.Threading.DispatcherTimer {
+                Interval = TimeSpan.FromSeconds(1)
+            };
+            montureMinuteur.Tick += (s, e) => RafraichirMonture();
+            montureMinuteur.Start();
+            RafraichirMonture();
+        }
+
+        private void RafraichirMonture() {
+            var monture = telescopeMediator.GetInfo();
+            if (!monture.Connected) {
+                if (MontureVisible) {
+                    MontureVisible = false;
+                    RaisePropertyChanged(nameof(MontureVisible));
+                }
+                dernierAzimutMonture = double.NaN;
+                derniereHauteurMonture = double.NaN;
+                return;
+            }
+
+            double azimut = monture.Azimuth;
+            double hauteur = monture.Altitude;
+            MonturePositionTexte = "Az " + azimut.ToString("0.0") + "°  ·  Haut " + hauteur.ToString("0.0") + "°";
+
+            // Bouge-t-elle VRAIMENT ? Le suivi normal dérive d'au plus
+            // ~0,004°/s (rotation de la Terre) : au-delà de 0,02° en une
+            // seconde, c'est un vrai déplacement.
+            bool bougeVraiment = false;
+            if (!double.IsNaN(dernierAzimutMonture)) {
+                double ecart = Math.Abs(azimut - dernierAzimutMonture) + Math.Abs(hauteur - derniereHauteurMonture);
+                bougeVraiment = ecart > 0.02;
+            }
+            dernierAzimutMonture = azimut;
+            derniereHauteurMonture = hauteur;
+
+            if (monture.AtPark) {
+                MontureEtatTexte = "⏸ PARQUÉE (déparquez-la pour travailler)";
+                CouleurMonture = BrosseOrangeClair;
+            } else if (monture.Slewing || bougeVraiment) {
+                MontureEtatTexte = "🟢 EN MOUVEMENT — laissez-la finir";
+                CouleurMonture = BrosseVertClair;
+            } else if (monture.TrackingEnabled) {
+                MontureEtatTexte = "✓ immobile, suivi actif (elle compense la Terre, c'est normal)";
+                CouleurMonture = BrosseGrisClair;
+            } else {
+                MontureEtatTexte = "■ immobile, suivi coupé";
+                CouleurMonture = BrosseOrangeClair;
+            }
+
+            MontureVisible = true;
+            RaisePropertyChanged(nameof(MontureVisible));
+            RaisePropertyChanged(nameof(MonturePositionTexte));
+            RaisePropertyChanged(nameof(MontureEtatTexte));
+            RaisePropertyChanged(nameof(CouleurMonture));
         }
 
         // ------------------------------------------------------------------
@@ -1028,6 +1111,11 @@ namespace ModeDebutant.AlignementPolaire {
         private static readonly Brush BrosseOrange = CreerBrosse(230, 145, 10);
         private static readonly Brush BrosseRouge = CreerBrosse(198, 40, 40);
         private static readonly Brush BrosseGris = CreerBrosse(85, 85, 85);
+
+        // Teintes claires pour du TEXTE sur le fond sombre de N.I.N.A.
+        private static readonly Brush BrosseVertClair = CreerBrosse(129, 199, 132);
+        private static readonly Brush BrosseOrangeClair = CreerBrosse(255, 183, 77);
+        private static readonly Brush BrosseGrisClair = CreerBrosse(170, 170, 170);
 
         private static Brush CreerBrosse(byte r, byte g, byte b) {
             var brosse = new SolidColorBrush(Color.FromRgb(r, g, b));
