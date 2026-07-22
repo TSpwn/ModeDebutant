@@ -11,8 +11,8 @@ using System.Runtime.InteropServices;
 [assembly: Guid("3d87e151-d363-4708-bce9-5db3356abccc")]
 
 // [OBLIGATOIRE] Version du plugin (à incrémenter à chaque nouvelle version)
-[assembly: AssemblyVersion("0.3.0.0")]
-[assembly: AssemblyFileVersion("0.3.0.0")]
+[assembly: AssemblyVersion("0.4.0.0")]
+[assembly: AssemblyFileVersion("0.4.0.0")]
 
 // [OBLIGATOIRE] Nom affiché dans la liste des plugins de N.I.N.A.
 [assembly: AssemblyTitle("Mode Debutant")]
@@ -21,9 +21,9 @@ using System.Runtime.InteropServices;
 [assembly: AssemblyDescription("L'astrophoto sans jargon : alignement polaire guidé (TPPA) et séquenceur en 3 réglages, avec de gros boutons et des consignes en français.")]
 
 // Auteur du plugin
-[assembly: AssemblyCompany("Tom")]
+[assembly: AssemblyCompany("Tom S")]
 [assembly: AssemblyProduct("Mode Debutant")]
-[assembly: AssemblyCopyright("Copyright © 2026 Tom")]
+[assembly: AssemblyCopyright("Copyright © 2026 Tom S")]
 
 // Version minimale de N.I.N.A. compatible avec ce plugin
 [assembly: AssemblyMetadata("MinimumApplicationVersion", "3.2.0.9001")]

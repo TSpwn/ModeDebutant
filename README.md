@@ -12,7 +12,7 @@ features:
   Includes tonight's target suggestions, an hourly cloud forecast, phone notifications,
   automatic darks and an HTML night report.
 
-Written by an amateur astrophotographer with the assistance of Claude (Anthropic).
+Written by Tom S (amateur astrophotographer) with the assistance of Claude (Anthropic).
 License: MPL-2.0.
 
 > ⚠️ **The plugin UI is currently French-only.** This page documents everything in English so
@@ -41,8 +41,14 @@ deploys itself to the right folder.
 
 ## 🎯 Guide: Simplified Polar Alignment
 
-The panel translates TPPA's measurements into physical gestures. Three screens flow into each
-other:
+The panel translates TPPA's measurements into physical gestures, and gathers every
+start-of-the-evening setting.
+
+**🔭 Live mount status** (banner at the very top, in every phase) — its position (azimuth /
+altitude) re-read every second and what it's doing: "🟢 MOVING — let it finish", "✓ idle,
+tracking on", "■ tracking off", "⏸ PARKED". Answers the classic "is it moving or is it stuck?",
+including right after a Stop. Motion is detected from the driver **and** from the position
+actually changing (some drivers report their state poorly).
 
 **📍 Your observing location** (top of the waiting screen)
 | Element | What it's for |
@@ -52,6 +58,18 @@ other:
 | ✏ Edit manually | Latitude/longitude in decimal degrees (comma accepted) + elevation in meters. Tip: right-click your house in Google Maps to read the values |
 | 🌍 Locate me via internet | Sets everything automatically (city-level accuracy — plenty for polar alignment); elevation is derived from the terrain |
 | Red warning (0°, 0°) | Location never set = wrong instructions. Fix it first |
+
+**🔭 Your equipment** — focal length, aperture (type your lens's f-ratio, e.g. "2.8", **or**
+your tube's diameter in mm, e.g. "72") and camera pixel size. The panel derives your sampling
+(″/pixel) and field of view, which drive the sequencer's framing advice and target suggestions.
+Warns when the focal length is missing.
+
+**🔍 Focus assist** (do this **before** aligning: TPPA needs sharp stars) — point at a bright
+star, start it, and the panel shoots every few seconds showing sharpness (HFR) **in huge
+digits** with a trend arrow: "↘ improving — keep turning the same way", "↗ getting worse — turn
+the other way", "→ stable and close to your best: that's very good". Focus frames are not saved.
+(With a Bahtinov mask: use the thumbnail and ignore the HFR number, which the diffraction spikes
+distort.)
 
 **Start options**
 | Option | Default | Meaning |
@@ -76,6 +94,11 @@ stops responding.
 
 The preparation screen follows the order of an actual evening:
 
+**🚦 Is everything ready?** (dashboard at the top, refreshed every 2 seconds) — live status of
+the camera, the mount (connected? parked?), guiding (with a "Direct Guider" tip when dithering
+is requested without a guider), your location, equipment/field of view and free disk space.
+A banner sums it up: "All set", "Ready, with remarks" or "Not ready yet — fix the red lines".
+
 **🧹 New evening** — clears last session's data (target, verdicts, report…) while keeping your
 settings. **📊 Reopen last night's report** right below it.
 
@@ -87,7 +110,8 @@ the banner just disappears.)
 | Element | Meaning |
 |---|---|
 | Search box + 🔍 | Type "M31", "NGC 7000", "Andromeda"… The list shows magnitude and visibility (✅ 32° up / 🚫 below the horizon right now) |
-| 🌌 Suggest tonight's targets | The 5 best targets right now **for your location**: bright and large enough for beginners, high for several hours, away from a bright Moon. "🌟 best 62° around 23h" |
+| 🌌 Suggest tonight's targets | The 5 best targets right now **for your location and your gear**: bright and large enough for beginners, high for several hours, away from a bright Moon, and a good fit for your frame. "🌟 best 62° around 23h · 🖼 fills your frame nicely" |
+| Framing advice | Every object (search results and suggestions alike) is compared to **your** field of view: "🖼 fills your frame nicely", "good size", "⚠ larger than your frame — aim for the core", "⚠ tiny (postage stamp)" |
 | 🔭 Point the telescope | GoTo to the selected target (checks: mount connected, unparked, target above the horizon) |
 
 **2 · The imaging run**
@@ -98,6 +122,7 @@ the banner just disappears.)
 | Gain / ISO | empty | Empty = keep the camera's current setting |
 | Dithering | ON | Small offset between shots (better stacking). Needs guiding — **silently skipped otherwise** |
 | Automatic meridian flip | ON | The mount flips by itself when the target crosses the meridian (skipped if no mount connected) |
+| Precise centering at start | ON | Before the first frame: plate-solve and nudge the mount until the target is **dead center** — fixes an imprecise GoTo. Needs a selected target and a connected mount |
 | Darks at the end | OFF | See below |
 | 🔧 All settings | — | Offset, binning, filter (exact name), dither every X shots, number of darks |
 
@@ -115,8 +140,11 @@ Clouds rolling in or focus drifting: you'll know from the couch.
 
 **▶ START THE RUN** — the plugin builds a **real sequence in N.I.N.A.'s advanced sequencer**
 and starts it (a "see the details" button shows how it's built — a nice way to learn).
-Pre-flight guards: camera connected, mount unparked, no sequence already running, weather
-(warning if ≥ 70 % clouds are forecast before the estimated end — a second click overrides).
+Pre-flight guards: camera connected, mount unparked, no sequence already running, then the four
+night traps (first click lists them, a second click goes ahead anyway): **weather** (≥ 70 %
+clouds before the end), **dawn** (the Sun will be too high at the estimated end — the last
+frames would be washed out), **target setting** (below the horizon, or under 20°, before the end)
+and **disk space** (estimated size of the run vs. what's left).
 
 **During the run**: "Photo 12 of 30", progress bar, time remaining and end time, latest frame
 thumbnail, "⭐ 543 stars · HFR 2.1" and the **automatic verdict**:

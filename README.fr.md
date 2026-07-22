@@ -12,7 +12,7 @@ fonctions existantes :
   Suggestions de cibles pour ce soir, météo de la nuit, alertes sur votre téléphone, darks
   automatiques et bilan de nuit inclus.
 
-Écrit par un astrophotographe amateur, avec l'assistance de Claude (Anthropic).
+Écrit par Tom S (astrophotographe amateur), avec l'assistance de Claude (Anthropic).
 Licence : MPL-2.0.
 
 ---
@@ -38,7 +38,14 @@ copie automatiquement au bon endroit.
 
 ## 🎯 Guide : Alignement polaire simplifié
 
-Le panneau traduit les mesures de TPPA en gestes physiques. Trois écrans qui s'enchaînent :
+Le panneau traduit les mesures de TPPA en gestes physiques, et rassemble tous les réglages de
+début de soirée.
+
+**🔭 La monture en direct** (bandeau tout en haut, dans toutes les phases) — sa position
+(azimut/hauteur) relue chaque seconde et son activité : « 🟢 EN MOUVEMENT — laissez-la finir »,
+« ✓ immobile, suivi actif », « ■ suivi coupé », « ⏸ PARQUÉE ». Répond au doute classique
+« est-ce que ça bouge ou c'est planté ? », y compris après un Stop. Le mouvement est détecté par
+le pilote **et** par le changement réel de position (certains pilotes déclarent mal leur état).
 
 **📍 Votre position d'observation** (en haut de l'écran d'attente)
 | Élément | À quoi ça sert |
@@ -48,6 +55,19 @@ Le panneau traduit les mesures de TPPA en gestes physiques. Trois écrans qui s'
 | ✏ Modifier à la main | Latitude/longitude en degrés décimaux (virgule acceptée) + altitude en mètres. Astuce : clic droit sur votre maison dans Google Maps pour lire les valeurs |
 | 🌍 Me localiser par Internet | Règle tout automatiquement (précision « à la ville près », suffisant) ; l'altitude est déduite du relief |
 | Alerte rouge (0°, 0°) | Position jamais réglée = consignes fausses. Réglez-la avant tout |
+
+**🔭 Votre matériel** — focale, ouverture (tapez le rapport f/ de votre objectif, ex. « 2,8 »,
+**ou** le diamètre en mm de votre tube, ex. « 72 ») et taille de pixel de la caméra. Le panneau
+en déduit votre échantillonnage (″/pixel) et votre champ de vision — dont se servent le cadrage
+et les suggestions de cibles du séquenceur. Alerte si la focale n'est pas renseignée.
+
+**🔍 La mise au point** (à faire **avant** d'aligner : TPPA a besoin d'étoiles nettes) — visez
+une étoile brillante, lancez, et le panneau prend une photo toutes les quelques secondes en
+affichant la netteté (HFR) **en chiffres géants** avec une flèche de tendance : « ↘ ça
+s'améliore, continuez dans le même sens », « ↗ ça se dégrade, tournez dans l'autre sens »,
+« → stable et proche de votre record : c'est très bon ». Les photos de réglage ne sont pas
+enregistrées. (Avec un masque de Bahtinov : servez-vous de la vignette, et ignorez le chiffre
+HFR que les aigrettes faussent.)
 
 **Options de démarrage**
 | Option | Défaut | Explication |
@@ -72,6 +92,12 @@ monture non parquée, chien de garde si TPPA ne répond pas.
 
 L'écran de préparation suit l'ordre d'une soirée :
 
+**🚦 Tout est prêt ?** (tableau de bord en tête, rafraîchi toutes les 2 secondes) — l'état en
+direct de la caméra, de la monture (connectée ? parquée ?), du guidage (avec l'astuce « Direct
+Guider » si le dithering est demandé sans guideur), de la position, du matériel/champ et de
+l'espace disque. Un bandeau résume : « Tout est prêt », « Prêt avec remarques » ou « Pas encore
+prêt — réglez les lignes rouges ».
+
 **🧹 Nouvelle soirée** — remet à zéro les données de la dernière session (cible, verdicts,
 bilan…) en conservant vos réglages. **📊 Revoir le bilan de la dernière série** juste en dessous.
 
@@ -83,7 +109,8 @@ Bouton ⟳ pour actualiser. (Sans Internet, le bandeau disparaît.)
 | Élément | Explication |
 |---|---|
 | Champ + 🔍 Chercher | Tapez « M31 », « NGC 7000 », « Andromeda »… La liste montre magnitude et visibilité (✅ à 32° de haut / 🚫 sous l'horizon) |
-| 🌌 Proposer des cibles pour ce soir | Les 5 meilleures cibles du moment **pour votre position** : assez brillantes et étendues pour débuter, hautes plusieurs heures, loin de la Lune si elle est brillante. « 🌟 au mieux 62° vers 23h » |
+| 🌌 Proposer des cibles pour ce soir | Les 5 meilleures cibles du moment **pour votre position et votre matériel** : assez brillantes et étendues pour débuter, hautes plusieurs heures, loin de la Lune si elle est brillante, et qui tiennent dans votre cadre. « 🌟 au mieux 62° vers 23h · 🖼 remplit superbement votre cadre » |
+| Conseils de cadrage | Chaque objet (recherche comme suggestions) est comparé à **votre** champ : « 🖼 remplit superbement », « belle taille », « ⚠ déborde de votre cadre — visez le cœur », « ⚠ minuscule (timbre-poste) » |
 | 🔭 Pointer le télescope | GoTo sur la cible choisie (vérifie : monture connectée, déparquée, cible au-dessus de l'horizon) |
 
 **2 · La série de photos**
@@ -94,6 +121,7 @@ Bouton ⟳ pour actualiser. (Sans Internet, le bandeau disparaît.)
 | Gain / ISO | vide | Vide = garder le réglage actuel de la caméra |
 | Dithering | ON | Petit décalage entre les photos (meilleur empilement). Nécessite le guidage — **ignoré automatiquement sinon** |
 | Retournement au méridien | ON | La monture se retourne toute seule si la cible passe plein sud (ignoré si monture non connectée) |
+| Centrage précis au démarrage | ON | Avant la 1ʳᵉ photo : analyse d'image (plate-solving) et recalage de la monture jusqu'à ce que la cible soit **pile au centre** — rattrape un GoTo approximatif. Nécessite une cible choisie et la monture connectée |
 | Darks à la fin | OFF | Voir plus bas |
 | 🔧 Tous les réglages | — | Offset, binning, filtre (nom exact), dithering toutes les X photos, nombre de darks |
 
@@ -113,7 +141,10 @@ vous le savez depuis le canapé.
 **▶ LANCER LA SÉRIE** — le plugin fabrique une **vraie séquence dans le séquenceur avancé** de
 N.I.N.A. et la lance (bouton « voir le détail » pour apprendre comment c'est construit).
 Garde-fous avant départ : caméra connectée, monture non parquée, pas de séquence déjà en cours,
-météo (avertissement si ≥ 70 % de nuages sont prévus avant la fin — un second clic force).
+puis les quatre pièges de la nuit (premier clic = la liste, second clic = on y va quand même) :
+**météo** (≥ 70 % de nuages avant la fin), **aube** (le Soleil sera trop haut à l'heure de fin —
+les dernières photos seraient délavées), **cible qui se couche** (sous l'horizon ou sous 20° en
+fin de série) et **espace disque** (poids estimé de la série contre la place restante).
 
 **Pendant la série** : « Photo 12 sur 30 », barre de progression, temps restant et heure de fin,
 vignette de la dernière photo, « ⭐ 543 étoiles · HFR 2,1 » et le **verdict automatique** :
