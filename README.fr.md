@@ -329,6 +329,44 @@ contrat fragile :
   démarrage, alerte « TPPA ne répond pas » avec pistes de diagnostic.
 - Détection de TPPA absent (existence du dossier
   `%LOCALAPPDATA%\NINA\Plugins\3.0.0\Three Point Polar Alignment`) → bandeau rouge en phase Attente.
+- **Focale et taille de pixel renseignées** : TPPA résout chaque photo par astrométrie, et
+  N.I.N.A. calcule le champ (`-fov`) à partir de ces deux valeurs. Si l'une manque, le solveur
+  cherche à la mauvaise échelle et échoue photo après photo sans message clair. Vérifié au
+  démarrage, avec renvoi vers la carte « 🔭 Votre matériel ».
+  ⚠ Le test doit être `double.IsNaN(x) || x <= 0` : un profil peut contenir `NaN` (case jamais
+  remplie), et **`NaN <= 0` est faux** — un simple `x <= 0` laisse passer le cas. Vu en vrai
+  le 2026-08-29 sur le profil de l'utilisateur.
+
+### Vignette : pourquoi il faut ré-étirer l'image soi-même
+Une photo d'astronomie brute est presque noire ; il faut « étirer » l'histogramme pour la voir.
+N.I.N.A. le fait pour son propre écran, **mais ne nous donne pas le résultat**. Vérifié par
+décompilation de `ImageControlVM.ProcessAndUpdateImage` (N.I.N.A. 3.2.0.9001) :
+
+```csharp
+var etiree = await ProcessImage(brute, parameters, ct);       // version étirée
+ImagePrepared?.Invoke(this, new ImagePreparedEventArgs {
+    RenderedImage = brute,                                     // ← la BRUTE part dans l'événement
+    Parameters = parameters });
+RenderedImage = etiree;                                        // l'étirée reste pour son écran
+```
+
+L'événement transmet donc **toujours** l'image avant étirement, quels que soient les réglages du
+profil ou le `PrepareImageParameters` de la capture — TPPA capture pourtant bien en
+`AutoStretch = true`, et le plate solving de N.I.N.A. en `AutoStretch = null` (défaut du profil).
+Aucun réglage ne change ce comportement : la vignette était noire pour cette seule raison.
+
+Solution retenue (`EtirerPourAffichage`) : refaire l'étirement avec **exactement** les réglages du
+profil, pour obtenir la même image que celle qu'affiche N.I.N.A. —
+`Stretch(ImageSettings.AutoStretchFactor, ImageSettings.BlackClipping, unlinked)` avec
+`unlinked = IsBayered && DebayerImage && UnlinkedStretch` (même condition que N.I.N.A.).
+Le débayerisage, lui, a déjà eu lieu **avant** l'événement : l'image reçue est en couleur.
+`GetThumbnail()` ne serait d'aucun secours — il se contente de réduire `Image`, donc noir aussi.
+
+Deux précautions : l'image étirée est réduite à 640 px de large avant affichage (une vignette de
+220 px n'a pas besoin de 12 mégapixels, et la machine cible n'a que 8 Go), et la réduction passe
+par `Dispatcher.InvokeAsync` — **pas** `Invoke`, qui bloquerait le fil d'imagerie si l'affichage
+est occupé. Un verrou `vignetteEnCours` saute les photos arrivant pendant un étirement, et la
+vignette n'est préparée que quand le panneau l'affiche (réglage ou alignement en cours).
 
 ### Qualité d'image
 Sur chaque `ImagePrepared` : réutilise `RawImageData.StarDetectionAnalysis` si déjà calculée par

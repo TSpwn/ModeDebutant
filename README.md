@@ -202,9 +202,20 @@ The short version:
   Weather & terrain elevation: open-meteo (free, no key). Geolocation: ipapi.co.
   City lookup: BigDataCloud. Phone alerts: ntfy.sh. All web calls fail silently — nothing is
   ever blocking.
+- **`ImagePrepared` hands you the *un-stretched* image.** Verified by decompiling
+  `ImageControlVM.ProcessAndUpdateImage` (N.I.N.A. 3.2.0.9001): it computes the stretched
+  render, then raises the event with the **original** one and keeps the stretched one for its
+  own display. No profile setting or `PrepareImageParameters` changes this. Any plugin showing
+  a preview from that event must re-stretch it — see `EtirerPourAffichage`, which mirrors
+  N.I.N.A.'s own parameters exactly. Debayering, by contrast, *has* already happened.
+- **Beware `NaN` in profile values.** A never-filled field (e.g. focal length) is `NaN`, and
+  `NaN <= 0` is **false** — so `if (x <= 0)` silently lets it through. Always test
+  `double.IsNaN(x) || x <= 0`.
 - Build: `dotnet build -c Release` → auto-deploys to
   `%LOCALAPPDATA%\NINA\Plugins\3.0.0\ModeDebutant\`. WPF panels are discovered by N.I.N.A.'s
   DataTemplate naming convention (`<Namespace.VMClass>_Dockable`).
+  N.I.N.A. must be **closed** (it locks the DLL). To compile without deploying, with N.I.N.A.
+  still open: `dotnet build -c Release -p:DeployToNina=false`.
 
 Contributions welcome — an English (or any other language) translation of the UI would be a
 great first issue.

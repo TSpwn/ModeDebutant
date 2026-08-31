@@ -210,6 +210,84 @@
                                 </StackPanel>
                             </DockPanel>
 
+                            <!-- Section repliée : la nuit sans surveillance -->
+                            <Expander Margin="0,14,0,0" FontSize="13">
+                                <Expander.Header>
+                                    <TextBlock Text="🌙 Laisser tourner sans surveiller" FontWeight="Bold" />
+                                </Expander.Header>
+                                <StackPanel Margin="0,10,0,0">
+                                    <TextBlock FontSize="11" Opacity="0.6" TextWrapping="Wrap" Margin="0,0,0,6"
+                                               Text="Ces options ajoutent à votre série de vraies instructions du séquenceur de N.I.N.A. Elles servent surtout si vous partez dormir." />
+
+                                    <DockPanel Margin="0,8,0,0">
+                                        <CheckBox DockPanel.Dock="Right" IsChecked="{Binding ModeLectureActif}"
+                                                  VerticalAlignment="Center" Margin="10,0,0,0" />
+                                        <StackPanel VerticalAlignment="Center">
+                                            <TextBlock FontSize="13" FontWeight="Bold" TextWrapping="Wrap"
+                                                       Text="Reposer le mode de lecture au départ" />
+                                            <TextBlock FontSize="11" Opacity="0.6" TextWrapping="Wrap"
+                                                       Text="N.I.N.A. ne l'envoie qu'à la connexion de la caméra. Si quelque chose l'a changé depuis, la nuit entière peut sortir en 8 bits sans le moindre message. Laissez coché." />
+                                        </StackPanel>
+                                    </DockPanel>
+
+                                    <DockPanel Margin="0,10,0,0">
+                                        <CheckBox DockPanel.Dock="Right" IsChecked="{Binding RefroidirActif}"
+                                                  VerticalAlignment="Center" Margin="10,0,0,0" />
+                                        <StackPanel VerticalAlignment="Center">
+                                            <TextBlock FontSize="13" FontWeight="Bold" TextWrapping="Wrap"
+                                                       Text="Refroidir avant, réchauffer après" />
+                                            <TextBlock FontSize="11" Opacity="0.6" TextWrapping="Wrap"
+                                                       Text="Descente progressive sur 5 minutes, remontée idem à la fin. Décoché = vous le faites à la main, comme aujourd'hui." />
+                                        </StackPanel>
+                                    </DockPanel>
+                                    <DockPanel Margin="20,6,0,0">
+                                        <TextBox DockPanel.Dock="Right" Width="90" Text="{Binding TemperatureCibleTexte, UpdateSourceTrigger=PropertyChanged}" />
+                                        <TextBlock Text="Température visée (°C) — la même que vos darks" VerticalAlignment="Center" TextWrapping="Wrap" />
+                                    </DockPanel>
+
+                                    <DockPanel Margin="0,10,0,0">
+                                        <CheckBox DockPanel.Dock="Right" IsChecked="{Binding ArretBasActif}"
+                                                  VerticalAlignment="Center" Margin="10,0,0,0" />
+                                        <StackPanel VerticalAlignment="Center">
+                                            <TextBlock FontSize="13" FontWeight="Bold" TextWrapping="Wrap"
+                                                       Text="Arrêter quand la cible descend trop bas" />
+                                            <TextBlock FontSize="11" Opacity="0.6" TextWrapping="Wrap"
+                                                       Text="Près de l'horizon, on photographie à travers beaucoup plus d'atmosphère : les images ne valent plus grand-chose." />
+                                        </StackPanel>
+                                    </DockPanel>
+                                    <DockPanel Margin="20,6,0,0">
+                                        <TextBox DockPanel.Dock="Right" Width="90" Text="{Binding AltitudeMiniTexte, UpdateSourceTrigger=PropertyChanged}" />
+                                        <TextBlock Text="Hauteur minimale (degrés)" VerticalAlignment="Center" />
+                                    </DockPanel>
+
+                                    <DockPanel Margin="0,10,0,0">
+                                        <CheckBox DockPanel.Dock="Right" IsChecked="{Binding RecentrageDeriveActif}"
+                                                  VerticalAlignment="Center" Margin="10,0,0,0" />
+                                        <StackPanel VerticalAlignment="Center">
+                                            <TextBlock FontSize="13" FontWeight="Bold" TextWrapping="Wrap"
+                                                       Text="Recentrer si la monture dérive" />
+                                            <TextBlock FontSize="11" Opacity="0.6" TextWrapping="Wrap"
+                                                       Text="Sans autoguidage, la cible s'échappe lentement du cadre. N.I.N.A. mesure l'écart par analyse d'image et recentre au-delà du seuil." />
+                                        </StackPanel>
+                                    </DockPanel>
+                                    <DockPanel Margin="20,6,0,0">
+                                        <TextBox DockPanel.Dock="Right" Width="90" Text="{Binding DeriveMaxTexte, UpdateSourceTrigger=PropertyChanged}" />
+                                        <TextBlock Text="Dérive tolérée (minutes d'arc)" VerticalAlignment="Center" />
+                                    </DockPanel>
+
+                                    <DockPanel Margin="0,10,0,0">
+                                        <CheckBox DockPanel.Dock="Right" IsChecked="{Binding ParkFinActif}"
+                                                  VerticalAlignment="Center" Margin="10,0,0,0" />
+                                        <StackPanel VerticalAlignment="Center">
+                                            <TextBlock FontSize="13" FontWeight="Bold" TextWrapping="Wrap"
+                                                       Text="Parquer la monture à la fin" />
+                                            <TextBlock FontSize="11" Opacity="0.6" TextWrapping="Wrap"
+                                                       Text="Elle se remet en position repos toute seule une fois la série terminée." />
+                                        </StackPanel>
+                                    </DockPanel>
+                                </StackPanel>
+                            </Expander>
+
                             <!-- Section repliée : tous les réglages, pour qui veut aller plus loin -->
                             <Expander Margin="0,14,0,0" FontSize="13">
                                 <Expander.Header>

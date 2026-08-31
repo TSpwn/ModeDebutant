@@ -15,10 +15,13 @@ using NINA.Profile.Interfaces;
 using NINA.Sequencer.Conditions;
 using NINA.Sequencer.Container;
 using NINA.Sequencer.Interfaces.Mediator;
+using NINA.Sequencer.SequenceItem.Camera;
 using NINA.Sequencer.SequenceItem.FilterWheel;
 using NINA.Sequencer.SequenceItem.Imaging;
 using NINA.Sequencer.SequenceItem.Platesolving;
+using NINA.Sequencer.SequenceItem.Telescope;
 using NINA.Sequencer.Trigger.MeridianFlip;
+using NINA.Sequencer.Trigger.Platesolving;
 using NINA.WPF.Base.Interfaces;
 using NINA.WPF.Base.Interfaces.Mediator;
 using NINA.WPF.Base.Interfaces.ViewModel;
@@ -749,7 +752,14 @@ namespace ModeDebutant.Sequenceur {
                 double focaleMm = profileService.ActiveProfile.TelescopeSettings.FocalLength;
                 double pixelMicrons = profileService.ActiveProfile.CameraSettings.PixelSize;
                 var camera = cameraMediator.GetInfo();
-                if (focaleMm <= 0 || pixelMicrons <= 0 || !camera.Connected || camera.XSize <= 0 || camera.YSize <= 0) {
+                // ⚠ Tester NaN explicitement : une case jamais remplie du profil
+                // vaut NaN, et « NaN <= 0 » est FAUX. Sans ce test, le calcul
+                // renvoyait un champ « NaN′ × NaN′ » que le tableau de bord
+                // affichait fièrement avec une coche verte. Vu en vrai le
+                // 2026-08-29 (FocalLength = NaN dans le profil de l'utilisateur).
+                if (double.IsNaN(focaleMm) || double.IsNaN(pixelMicrons)
+                    || focaleMm <= 0 || pixelMicrons <= 0
+                    || !camera.Connected || camera.XSize <= 0 || camera.YSize <= 0) {
                     return null;
                 }
                 // La formule classique : 206,265 × taille de pixel (µm) /
@@ -877,6 +887,62 @@ namespace ModeDebutant.Sequenceur {
             set { reglages.SetValueBoolean(nameof(CentrageActif), value); RaisePropertyChanged(); }
         }
 
+        /// <summary>
+        /// Forcer le mode de lecture de la caméra au début de la série.
+        ///
+        /// Pourquoi ce réglage existe : N.I.N.A. n'envoie le mode de lecture à
+        /// la caméra qu'à la connexion, jamais avant une pose. Si quoi que ce
+        /// soit l'a changé entre-temps, toute la nuit peut être enregistrée en
+        /// 8 bits sans que rien ne le signale. Cette instruction le repose
+        /// explicitement à chaque lancement. Coût : nul.
+        /// </summary>
+        public bool ModeLectureActif {
+            get => reglages.GetValueBoolean(nameof(ModeLectureActif), true);
+            set { reglages.SetValueBoolean(nameof(ModeLectureActif), value); RaisePropertyChanged(); }
+        }
+
+        /// <summary>Refroidir la caméra avant la série, la réchauffer après.</summary>
+        public bool RefroidirActif {
+            get => reglages.GetValueBoolean(nameof(RefroidirActif), false);
+            set { reglages.SetValueBoolean(nameof(RefroidirActif), value); RaisePropertyChanged(); }
+        }
+
+        /// <summary>Température visée, en °C (défaut −10).</summary>
+        public string TemperatureCibleTexte {
+            get => reglages.GetValueString(nameof(TemperatureCibleTexte), "-10");
+            set { reglages.SetValueString(nameof(TemperatureCibleTexte), value); RaisePropertyChanged(); }
+        }
+
+        /// <summary>Parquer la monture à la fin de la série.</summary>
+        public bool ParkFinActif {
+            get => reglages.GetValueBoolean(nameof(ParkFinActif), false);
+            set { reglages.SetValueBoolean(nameof(ParkFinActif), value); RaisePropertyChanged(); }
+        }
+
+        /// <summary>Arrêter la série quand la cible descend trop bas.</summary>
+        public bool ArretBasActif {
+            get => reglages.GetValueBoolean(nameof(ArretBasActif), false);
+            set { reglages.SetValueBoolean(nameof(ArretBasActif), value); RaisePropertyChanged(); }
+        }
+
+        /// <summary>Hauteur minimale de la cible, en degrés (défaut 30).</summary>
+        public string AltitudeMiniTexte {
+            get => reglages.GetValueString(nameof(AltitudeMiniTexte), "30");
+            set { reglages.SetValueString(nameof(AltitudeMiniTexte), value); RaisePropertyChanged(); }
+        }
+
+        /// <summary>Recentrer automatiquement si la monture dérive.</summary>
+        public bool RecentrageDeriveActif {
+            get => reglages.GetValueBoolean(nameof(RecentrageDeriveActif), false);
+            set { reglages.SetValueBoolean(nameof(RecentrageDeriveActif), value); RaisePropertyChanged(); }
+        }
+
+        /// <summary>Dérive tolérée avant recentrage, en minutes d'arc (défaut 10).</summary>
+        public string DeriveMaxTexte {
+            get => reglages.GetValueString(nameof(DeriveMaxTexte), "10");
+            set { reglages.SetValueString(nameof(DeriveMaxTexte), value); RaisePropertyChanged(); }
+        }
+
         /// <summary>Proposer les darks à la fin de la série de photos.</summary>
         public bool DarksActif {
             get => reglages.GetValueBoolean(nameof(DarksActif), false);
@@ -961,6 +1027,7 @@ namespace ModeDebutant.Sequenceur {
                 return;
             }
             var monture = telescopeMediator.GetInfo();
+            var camera = cameraMediator.GetInfo();
             if (monture.Connected && monture.AtPark) {
                 Avertissement = "⚠ La monture est parquée (position repos). Déparquez-la : onglet Équipement > Monture, bouton « Unpark », puis revenez.";
                 RaisePropertyChanged(nameof(Avertissement));
@@ -1077,6 +1144,34 @@ namespace ModeDebutant.Sequenceur {
             racine.Add(zoneFin);
             racine.SequenceTitle = "Série simplifiée (Mode Débutant)";
 
+            // ---- Zone de début : ce qu'on fait AVANT la première photo ----
+
+            // 1. Reposer le mode de lecture de la caméra.
+            //    N.I.N.A. ne l'envoie qu'à la connexion de la caméra, jamais
+            //    avant une pose : si quelque chose l'a changé entre-temps, la
+            //    nuit entière peut partir en 8 bits sans le moindre message.
+            //    Cette instruction officielle le repose explicitement.
+            var modeVoulu = profileService.ActiveProfile.CameraSettings.ReadoutModeForNormalImages;
+            if (ModeLectureActif && camera.Connected && modeVoulu.HasValue) {
+                zoneDebut.Add(new SetReadoutMode(cameraMediator) { Mode = modeVoulu.Value });
+                notes += "Mode de lecture reposé · ";
+            }
+
+            // 2. Déparquer la monture : parquée, elle refuse de bouger et tout
+            //    le reste échoue. Sans effet si elle ne l'est pas.
+            if (monture.Connected) {
+                zoneDebut.Add(new UnparkScope(telescopeMediator));
+            }
+
+            // 3. Refroidir, en descendant progressivement (SVBONY recommande
+            //    au moins 3 minutes ; on en met 5). La consigne doit être la
+            //    MÊME que celle de vos darks, sinon ils ne correspondent plus.
+            if (RefroidirActif && camera.Connected) {
+                double consigne = DoubleOuDefaut(TemperatureCibleTexte, -10);
+                zoneDebut.Add(new CoolCamera(cameraMediator) { Temperature = consigne, Duration = 5 });
+                notes += "Refroidissement à " + consigne.ToString("0") + " °C · ";
+            }
+
             // La "cible" : porte le nom de l'objet (pour les noms de fichiers
             // et l'affichage) et contient les instructions de prise de vue
             var conteneurCible = new DeepSkyObjectContainer(profileService, nighttimeCalculator, framingAssistantVM,
@@ -1163,6 +1258,18 @@ namespace ModeDebutant.Sequenceur {
             }
 
             conteneurCible.Add(poseIntelligente);
+
+            // Arrêt quand la cible descend trop bas : sous ~30°, on photographie
+            // à travers beaucoup plus d'atmosphère et les images se dégradent
+            // vite. Utile surtout si vous laissez tourner en dormant.
+            if (ArretBasActif && CibleChoisie != null) {
+                double altMini = DoubleOuDefaut(AltitudeMiniTexte, 30);
+                var conditionHauteur = new AltitudeCondition(profileService) { HasDsoParent = true };
+                conditionHauteur.Data.Offset = altMini;
+                conteneurCible.Add(conditionHauteur);
+                notes += "Arrêt sous " + altMini.ToString("0") + "° · ";
+            }
+
             zoneCibles.Add(conteneurCible);
 
             // Retournement au méridien : seulement si monture connectée
@@ -1172,6 +1279,33 @@ namespace ModeDebutant.Sequenceur {
                 notes += "Retournement au méridien surveillé · ";
             } else if (FlipActif) {
                 notes += "Retournement au méridien ignoré (monture non connectée) · ";
+            }
+
+            // Recentrage automatique sur dérive : sans autoguidage, la cible
+            // s'échappe lentement du cadre. Ce déclencheur mesure l'écart par
+            // astrométrie et recentre au-delà du seuil. C'est ce qui sauve une
+            // longue série non guidée.
+            if (RecentrageDeriveActif && monture.Connected && CibleChoisie != null) {
+                double deriveMax = DoubleOuDefaut(DeriveMaxTexte, 10);
+                conteneurCible.Add(new CenterAfterDriftTrigger(profileService, telescopeMediator,
+                    filterWheelMediator, guiderMediator, imagingMediator, cameraMediator,
+                    domeMediator, domeFollower, imageSaveMediator, applicationStatusMediator) {
+                    DistanceArcMinutes = deriveMax
+                });
+                notes += "Recentrage au-delà de " + deriveMax.ToString("0.#") + "′ · ";
+            }
+
+            // ---- Zone de fin : ce qu'on fait APRÈS la dernière photo ----
+
+            // Réchauffer doucement : éviter le choc thermique et la condensation
+            if (RefroidirActif && camera.Connected) {
+                zoneFin.Add(new WarmCamera(cameraMediator) { Duration = 5 });
+            }
+
+            // Parquer la monture : elle se remet en position repos, à l'abri
+            if (ParkFinActif && monture.Connected) {
+                zoneFin.Add(new ParkScope(telescopeMediator, guiderMediator));
+                notes += "Monture parquée à la fin · ";
             }
 
             NotesSerie = notes.TrimEnd(' ', '·');
@@ -1662,23 +1796,37 @@ namespace ModeDebutant.Sequenceur {
         /// <summary>La dernière photo prise, prête à afficher.</summary>
         public ImageSource DerniereImage { get; private set; }
 
-        private void QuandImagePrete(object sender, ImagePreparedEventArgs e) {
+        // Une seule préparation de vignette à la fois : étirer une image de
+        // 12 mégapixels prend un moment, et les photos peuvent s'enchaîner
+        private bool vignetteEnCours;
+
+        private async void QuandImagePrete(object sender, ImagePreparedEventArgs e) {
             if (phase != Phase.EnCours) { return; }
-            var image = e?.RenderedImage?.Image;
-            if (image == null) { return; }
+            var rendu = e?.RenderedImage;
+            if (rendu == null) { return; }
 
-            // "Freeze" fige l'image : indispensable pour l'afficher alors
-            // qu'elle vient d'un autre fil d'exécution (règle WPF)
-            if (!image.IsFrozen && image.CanFreeze) { image.Freeze(); }
-            if (!image.IsFrozen) { return; }
-
-            DerniereImage = image;
-            RaisePropertyChanged(nameof(DerniereImage));
+            // ⚠ L'événement transmet l'image AVANT étirement : affichée telle
+            // quelle, elle est presque noire. Voir AideImage pour le détail —
+            // c'est un comportement de N.I.N.A., pas un réglage.
+            if (!vignetteEnCours) {
+                vignetteEnCours = true;
+                try {
+                    var affichable = await AideImage.PreparerVignette(rendu, profileService);
+                    if (affichable != null) {
+                        DerniereImage = affichable;
+                        RaisePropertyChanged(nameof(DerniereImage));
+                    }
+                } catch {
+                    // La vignette est un confort : jamais bloquant pour la séquence
+                } finally {
+                    vignetteEnCours = false;
+                }
+            }
 
             // Un dark est tout noir : compter ses étoiles n'aurait aucun sens
             // (le verdict hurlerait « aucune étoile ! » à chaque image)
             if (!darksEnCours) {
-                AnalyserQualite(e.RenderedImage);
+                AnalyserQualite(rendu);
             }
         }
 

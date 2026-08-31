@@ -19,6 +19,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 
 namespace ModeDebutant.AlignementPolaire {
 
@@ -56,6 +57,11 @@ namespace ModeDebutant.AlignementPolaire {
         private readonly System.Timers.Timer chienDeGarde;
         private DateTime demarreLe;
         private bool tppaADonneSigneDeVie;
+
+        // Échecs de résolution annoncés par TPPA, à la suite. Remis à zéro dès
+        // qu'une mesure d'erreur arrive (seul signal fiable de réussite).
+        private int echecsConsecutifs;
+        private const int SeuilAlerteEchecs = 3;
 
         // Coffre à réglages fourni par N.I.N.A. : mémorise nos options
         // dans le profil actif, d'une session à l'autre
@@ -373,9 +379,15 @@ namespace ModeDebutant.AlignementPolaire {
             double rapportFD = profileService.ActiveProfile.TelescopeSettings.FocalRatio;
             double pixel = profileService.ActiveProfile.CameraSettings.PixelSize;
 
-            MaterielNonRegle = focale <= 0;
+            // ⚠ Attention aux comparaisons quand la valeur est « NaN »
+            // (Not a Number = case jamais remplie). En informatique, NaN
+            // répond FAUX à tout : « NaN <= 0 » est faux, « NaN > 0 » aussi.
+            // Un simple « focale <= 0 » laisserait donc passer une focale
+            // vide sans lever l'alerte. Le cas s'est produit pour de vrai.
+            bool focaleValide = !double.IsNaN(focale) && focale > 0;
+            MaterielNonRegle = !focaleValide;
 
-            if (focale > 0) {
+            if (focaleValide) {
                 MaterielTexte = "Focale " + focale.ToString("0") + " mm";
                 if (rapportFD > 0) {
                     MaterielTexte += "  ·  Diamètre " + (focale / rapportFD).ToString("0") + " mm"
@@ -711,27 +723,76 @@ namespace ModeDebutant.AlignementPolaire {
 
         // ------------------------------------------------------------------
         // Vignette de la dernière photo prise
+        //
+        // ⚠ PIÈGE DE N.I.N.A. — c'est ce qui rendait la vignette toute noire.
+        //
+        // Une photo d'astronomie brute est presque entièrement noire : les
+        // étoiles n'occupent qu'une minuscule partie de l'échelle de
+        // luminosité. Pour qu'elle devienne regardable, il faut l'« étirer »
+        // (redistribuer les niveaux). N.I.N.A. le fait pour son propre écran.
+        //
+        // Mais son code (ImageControlVM.ProcessAndUpdateImage, vérifié par
+        // décompilation) fait ceci :
+        //
+        //     var etiree = await ProcessImage(brute, ...);      // version étirée
+        //     ImagePrepared?.Invoke(..., RenderedImage = brute) // ← il nous
+        //                                                       //   donne la BRUTE
+        //     RenderedImage = etiree;                           // et garde
+        //                                                       // l'étirée pour lui
+        //
+        // Autrement dit : l'événement auquel nous sommes abonnés transmet
+        // l'image AVANT étirement, quels que soient les réglages. Ce n'est pas
+        // une erreur de notre côté, et aucun réglage de N.I.N.A. n'y change
+        // quoi que ce soit. La seule solution est de refaire l'étirement
+        // nous-mêmes — avec exactement les mêmes réglages, pour obtenir la
+        // même image que celle qu'affiche N.I.N.A.
         // ------------------------------------------------------------------
 
-        /// <summary>La dernière image capturée, prête à afficher.</summary>
+        /// <summary>La dernière image capturée, étirée et prête à afficher.</summary>
         public ImageSource DerniereImage { get; private set; }
 
-        private void QuandImagePrete(object sender, ImagePreparedEventArgs e) {
-            var image = e?.RenderedImage?.Image;
-            if (image == null) { return; }
+        // Garde-fou : une seule préparation de vignette à la fois. Étirer une
+        // image de 12 mégapixels prend un moment ; si les photos arrivent plus
+        // vite, on saute simplement celles de trop.
+        private bool vignetteEnCours;
 
-            // "Freeze" fige l'image : indispensable pour qu'elle puisse être
-            // affichée par l'écran alors qu'elle a été produite par un autre
-            // fil d'exécution (règle de sécurité de WPF)
-            if (!image.IsFrozen && image.CanFreeze) { image.Freeze(); }
-            if (!image.IsFrozen) { return; }
+        private async void QuandImagePrete(object sender, ImagePreparedEventArgs e) {
+            var rendu = e?.RenderedImage;
+            if (rendu == null) { return; }
 
-            DerniereImage = image;
-            RaisePropertyChanged(nameof(DerniereImage));
+            // Note : ne PAS filtrer sur DockableVM.IsVisible. Ce drapeau ne dit
+            // pas « le panneau est à l'écran » — N.I.N.A. le met à true au
+            // chargement de la disposition pour tous les panneaux enregistrés
+            // (y compris masqués) et ne le repasse à false qu'à la fermeture
+            // explicite du panneau. Un panneau activé en cours de session peut
+            // rester à false. Le test ci-dessous suffit de toute façon : ces
+            // deux modes ne se lancent que depuis ce panneau.
+
+            // On ne prépare la vignette que quand le panneau l'affiche :
+            // pendant le réglage de la mise au point, ou pendant l'alignement.
+            // Le reste du temps, ce serait du calcul pour rien.
+            if (!modeReglage && phase == Phase.Attente) { return; }
+
+            if (!vignetteEnCours) {
+                vignetteEnCours = true;
+                try {
+                    var affichable = await AideImage.PreparerVignette(rendu, profileService);
+                    if (affichable != null) {
+                        DerniereImage = affichable;
+                        RaisePropertyChanged(nameof(DerniereImage));
+                    }
+                } catch {
+                    // La vignette est un confort : si elle échoue, elle ne doit
+                    // jamais perturber l'alignement lui-même
+                } finally {
+                    vignetteEnCours = false;
+                }
+            }
 
             // Et on compte les étoiles sur cette photo (en tâche de fond)
-            CompterEtoiles(e.RenderedImage);
+            CompterEtoiles(rendu);
         }
+
 
         // ------------------------------------------------------------------
         // Comptage des étoiles : un bon indicateur de qualité
@@ -742,15 +803,38 @@ namespace ModeDebutant.AlignementPolaire {
         // plus vite que l'analyse, on saute simplement celles de trop)
         private bool comptageEnCours;
 
+        // Quand a-t-on lancé la dernière détection d'étoiles COMPLÈTE ?
+        //
+        // Pourquoi la limiter : TPPA capture ses photos avec « detectStars:
+        // false », donc N.I.N.A. ne calcule jamais l'analyse pour elles, et
+        // nous devons la faire nous-mêmes — sur 11,7 millions de pixels. Or
+        // au même instant, TPPA envoie exactement la même image au solveur
+        // astrométrique, qui y cherche lui aussi les étoiles. On dupliquerait
+        // le travail le plus lourd de la soirée, à chaque photo, en x64 émulé
+        // sur ARM, pendant que le solveur en a besoin.
+        //
+        // Une fois toutes les 25 secondes suffit largement : cette information
+        // sert à voir que les étoiles sont toujours là, pas à suivre chaque
+        // cliché. En mode réglage de la mise au point, c'est une autre méthode
+        // qui s'en charge (AnalyserPhotoReglage), sur chaque photo — là, c'est
+        // tout l'intérêt.
+        private DateTime dernierComptageComplet = DateTime.MinValue;
+        private static readonly TimeSpan IntervalleComptageComplet = TimeSpan.FromSeconds(25);
+
         private async void CompterEtoiles(IRenderedImage rendu) {
             if (comptageEnCours || phase == Phase.Attente) { return; }
             comptageEnCours = true;
             try {
-                // Si N.I.N.A. a déjà analysé cette image, on réutilise le résultat
+                // Si N.I.N.A. a déjà analysé cette image, on réutilise le
+                // résultat : c'est gratuit, donc jamais limité
                 var analyse = rendu.RawImageData?.StarDetectionAnalysis;
 
                 if (analyse == null || analyse.DetectedStars <= 0) {
-                    // Sinon on lance nous-mêmes le détecteur d'étoiles officiel
+                    // Sinon il faut lancer le détecteur officiel nous-mêmes.
+                    // C'est l'opération coûteuse : on l'espace.
+                    if (DateTime.UtcNow - dernierComptageComplet < IntervalleComptageComplet) { return; }
+                    dernierComptageComplet = DateTime.UtcNow;
+
                     // (sensibilité normale, sans réduction de bruit)
                     var renduAnalyse = await rendu.DetectStars(false, StarSensitivityEnum.Normal, NoiseReductionEnum.None);
                     analyse = renduAnalyse?.RawImageData?.StarDetectionAnalysis;
@@ -799,6 +883,10 @@ namespace ModeDebutant.AlignementPolaire {
                 tppaADonneSigneDeVie = true;
                 Avertissement = "";
 
+                // Une mesure d'erreur n'arrive QUE si une résolution vient de
+                // réussir : c'est notre seul signal fiable de succès
+                echecsConsecutifs = 0;
+
                 // TPPA envoie trois nombres en DEGRÉS ; on les lit par leur nom
                 if (LireDouble(message.Content, "AzimuthError", out var azimutDeg)
                     && LireDouble(message.Content, "AltitudeError", out var altitudeDeg)
@@ -810,13 +898,41 @@ namespace ModeDebutant.AlignementPolaire {
             } else if (message.Topic == CanalProgression) {
                 // TPPA diffuse son avancement : il est bien vivant
                 tppaADonneSigneDeVie = true;
-                Avertissement = "";
 
                 // On affiche le détail technique tel quel (texte anglais de
                 // TPPA : Capture, Solving, Slewing…) — c'est un petit plus
                 // pour comprendre ce qui se passe
+                string texteEtat = null;
                 if (message.Content is NINA.Core.Model.ApplicationStatus statut && !string.IsNullOrWhiteSpace(statut.Status)) {
-                    DetailTechnique = statut.Status;
+                    texteEtat = statut.Status;
+                    DetailTechnique = texteEtat;
+                }
+
+                // ⚠ Piège de TPPA : quand une résolution échoue, il élargit le
+                // rayon de recherche et RECOMMENCE, indéfiniment — avec les
+                // notifications désactivées (DisableNotifications = true dans
+                // son code). Rien n'apparaît à l'écran. Notre chien de garde ne
+                // le rattrape pas non plus : il ne se déclenche que si TPPA est
+                // muet, or ici TPPA parle, il dit juste qu'il échoue.
+                //
+                // Pour un débutant, ça ressemble à « ça travaille » pendant
+                // vingt minutes. On compte donc les échecs et on le dit.
+                bool estUnEchec = texteEtat != null
+                    && (texteEtat.StartsWith("Plate solve failed", StringComparison.OrdinalIgnoreCase)
+                     || texteEtat.StartsWith("Image capture failed", StringComparison.OrdinalIgnoreCase));
+
+                if (estUnEchec) {
+                    echecsConsecutifs++;
+                    if (echecsConsecutifs >= SeuilAlerteEchecs) {
+                        Avertissement = "⚠ L'astrométrie échoue en boucle (" + echecsConsecutifs
+                            + " essais de suite). TPPA continue d'essayer sans le dire. Causes les plus "
+                            + "fréquentes, dans l'ordre : mise au point à refaire, objectif encore bouché, "
+                            + "nuages ou buée, pose trop courte. Cliquez sur Annuler, vérifiez avec le "
+                            + "réglage de la mise au point, puis relancez.";
+                    }
+                } else if (echecsConsecutifs == 0) {
+                    // Pas d'échec en cours : on peut effacer une alerte périmée
+                    Avertissement = "";
                 }
 
                 if (phase == Phase.Attente) {
@@ -1037,10 +1153,28 @@ namespace ModeDebutant.AlignementPolaire {
                 RaisePropertyChanged(nameof(Avertissement));
                 return;
             }
+            // TPPA résout chaque photo par astrométrie. N.I.N.A. calcule la
+            // taille du champ à partir de la focale ET de la taille de pixel :
+            // si l'une des deux manque, le solveur cherche à la mauvaise
+            // échelle et échoue photo après photo, sans message compréhensible.
+            // Mieux vaut le dire ici, une fois, en clair.
+            double focaleControle = profileService.ActiveProfile.TelescopeSettings.FocalLength;
+            if (double.IsNaN(focaleControle) || focaleControle <= 0) {
+                Avertissement = "⚠ La focale de votre instrument n'est pas renseignée. Sans elle, l'astrométrie cherche à la mauvaise échelle et échoue. Remplissez-la dans la carte « 🔭 Votre matériel », juste au-dessus.";
+                RaisePropertyChanged(nameof(Avertissement));
+                return;
+            }
+            double pixelControle = profileService.ActiveProfile.CameraSettings.PixelSize;
+            if (double.IsNaN(pixelControle) || pixelControle <= 0) {
+                Avertissement = "⚠ La taille des pixels de la caméra n'est pas renseignée. Sans elle, l'astrométrie cherche à la mauvaise échelle et échoue. Remplissez-la dans la carte « 🔭 Votre matériel », juste au-dessus.";
+                RaisePropertyChanged(nameof(Avertissement));
+                return;
+            }
 
             Avertissement = "";
             DetailTechnique = "";
             tppaADonneSigneDeVie = false;
+            echecsConsecutifs = 0;
             demarreLe = DateTime.UtcNow;
             phase = Phase.Mesure;
             NotifierToutChange();

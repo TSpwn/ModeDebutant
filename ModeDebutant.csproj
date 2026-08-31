@@ -37,8 +37,15 @@
 
   <!-- Après chaque compilation réussie, la DLL est copiée automatiquement
        dans le dossier où N.I.N.A. cherche ses plugins.
-       Il suffit donc de compiler, puis de (re)démarrer N.I.N.A. -->
-  <Target Name="DeployToNina" AfterTargets="PostBuildEvent">
+       Il suffit donc de compiler, puis de (re)démarrer N.I.N.A.
+
+       N.I.N.A. doit être FERMÉ : tant qu'il tourne, il garde la DLL
+       verrouillée et la copie échoue. Pour vérifier seulement que le code
+       compile, sans rien copier, N.I.N.A. pouvant rester ouvert :
+
+           dotnet build -c Release -p:DeployToNina=false
+  -->
+  <Target Name="DeployToNina" AfterTargets="PostBuildEvent" Condition="'$(DeployToNina)' != 'false'">
     <MakeDir Directories="$(LOCALAPPDATA)\NINA\Plugins\3.0.0\$(TargetName)" />
     <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(LOCALAPPDATA)\NINA\Plugins\3.0.0\$(TargetName)" />
   </Target>
