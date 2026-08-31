@@ -11,8 +11,8 @@ using System.Runtime.InteropServices;
 [assembly: Guid("3d87e151-d363-4708-bce9-5db3356abccc")]
 
 // [OBLIGATOIRE] Version du plugin (à incrémenter à chaque nouvelle version)
-[assembly: AssemblyVersion("0.4.0.0")]
-[assembly: AssemblyFileVersion("0.4.0.0")]
+[assembly: AssemblyVersion("0.5.0.0")]
+[assembly: AssemblyFileVersion("0.5.0.0")]
 
 // [OBLIGATOIRE] Nom affiché dans la liste des plugins de N.I.N.A.
 [assembly: AssemblyTitle("Mode Debutant")]
