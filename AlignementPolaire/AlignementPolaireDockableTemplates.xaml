@@ -160,51 +160,6 @@
                             </ScrollViewer>
                         </TabItem>
 
-                        <TabItem Header="  Vérifier  ">
-                            <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="620">
-                                <StackPanel Margin="4,10,4,4">
-                    <!-- ── Test de charge : la monture tient-elle quand
-                         les moteurs travaillent ? ── -->
-                    <Border Background="#22888888" CornerRadius="8" Padding="12" Margin="0,14,0,0">
-                        <StackPanel>
-                            <TextBlock Text="🔋 Test de la monture (alimentation)" FontSize="14" FontWeight="Bold" />
-                            <TextBlock FontSize="11" Opacity="0.6" TextWrapping="Wrap" Margin="0,2,0,8"
-                                       Text="Fait travailler les deux moteurs pendant une minute et vérifie trois choses : la monture obéit-elle, s'arrête-t-elle quand on lui dit, et reste-t-elle connectée ? Un axe qui ne s'arrête pas est le signe d'une alimentation qui faiblit sous charge. À faire au chaud, appareil photo retiré si possible — la monture revient à son point de départ." />
-
-                            <StackPanel Visibility="{Binding TestChargePasEnCours, Converter={StaticResource BoolVersVisibilite}}">
-                                <Button Command="{Binding VerifierSuiviCommand}" Height="40" FontSize="14" FontWeight="Bold"
-                                        Content="✔  VÉRIFIER LE SUIVI (20 s)" />
-                                <TextBlock FontSize="11" Opacity="0.6" TextWrapping="Wrap" Margin="0,4,0,10"
-                                           Text="À faire avant chaque séance. Si le suivi n'est pas actif, vos étoiles seront des traits et rien d'autre ne marchera : ni le plate solve, ni le centrage, ni l'alignement." />
-
-                                <Button Command="{Binding TestChargeCommand}" Height="36" FontSize="13" FontWeight="Bold"
-                                        Content="🔋 Test normal (environ 3 min)" />
-                                <Button Command="{Binding TestChargeDurCommand}" Height="36" FontSize="13" FontWeight="Bold"
-                                        Margin="0,6,0,0"
-                                        Content="🔥 Test DUR — moteurs rapides + caméra (environ 8 min)" />
-                                <TextBlock FontSize="11" Opacity="0.6" TextWrapping="Wrap" Margin="0,6,0,0"
-                                           Text="Le test dur pousse les moteurs à 3°/s pendant 5 secondes d'affilée, pendant que la caméra prend des photos en continu. C'est ce qui reproduit les conditions d'un alignement polaire — le moment où les pannes arrivent vraiment." />
-                            </StackPanel>
-
-                            <StackPanel Visibility="{Binding TestChargeEnCours, Converter={StaticResource BoolVersVisibilite}}">
-                                <TextBlock Text="{Binding TestChargeEtape}" FontSize="13" FontWeight="Bold"
-                                           TextWrapping="Wrap" HorizontalAlignment="Center" Margin="0,4" />
-                                <Button Command="{Binding ArreterTestChargeCommand}" Height="32" FontSize="12"
-                                        Content="✖  Arrêter le test" />
-                            </StackPanel>
-
-                            <Border CornerRadius="6" Padding="10" Margin="0,10,0,0"
-                                    Background="{Binding CouleurTestCharge}"
-                                    Visibility="{Binding TestChargeVerdictVisible, Converter={StaticResource BoolVersVisibilite}}">
-                                <TextBlock Text="{Binding TestChargeVerdict}" Foreground="White"
-                                           FontSize="12" TextWrapping="Wrap" />
-                            </Border>
-                        </StackPanel>
-                    </Border>
-                                </StackPanel>
-                            </ScrollViewer>
-                        </TabItem>
-
                         <TabItem Header="  Mise au point  ">
                             <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="620">
                                 <StackPanel Margin="4,10,4,4">
@@ -342,15 +297,56 @@
                             </ScrollViewer>
                         </TabItem>
 
-                    </TabControl>
-
-                    <!-- Alerte (caméra/monture non connectée…) — invisible si vide -->
-                    <TextBlock Text="{Binding Avertissement}" Foreground="#FFB74D" FontSize="13" FontWeight="Bold"
-                               TextWrapping="Wrap" Margin="0,12,0,0" />
-
-                    <!-- ── Vérification générale : le go/no-go d'avant-séance ── -->
+                        <TabItem Header="  Diagnostic  ">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="620">
+                                <StackPanel Margin="4,10,4,4">
+                    <!-- ── Test de charge : la monture tient-elle quand
+                         les moteurs travaillent ? ── -->
                     <Border Background="#22888888" CornerRadius="8" Padding="12" Margin="0,14,0,0">
                         <StackPanel>
+                            <TextBlock Text="🔋 Test de la monture (alimentation)" FontSize="14" FontWeight="Bold" />
+                            <TextBlock FontSize="11" Opacity="0.6" TextWrapping="Wrap" Margin="0,2,0,8"
+                                       Text="Fait travailler les deux moteurs pendant une minute et vérifie trois choses : la monture obéit-elle, s'arrête-t-elle quand on lui dit, et reste-t-elle connectée ? Un axe qui ne s'arrête pas est le signe d'une alimentation qui faiblit sous charge. À faire au chaud, appareil photo retiré si possible — la monture revient à son point de départ." />
+
+                            <StackPanel Visibility="{Binding TestChargePasEnCours, Converter={StaticResource BoolVersVisibilite}}">
+                                <Button Command="{Binding VerifierSuiviCommand}" Height="40" FontSize="14" FontWeight="Bold"
+                                        Content="✔  VÉRIFIER LE SUIVI (20 s)" />
+                                <TextBlock FontSize="11" Opacity="0.6" TextWrapping="Wrap" Margin="0,4,0,10"
+                                           Text="À faire avant chaque séance. Si le suivi n'est pas actif, vos étoiles seront des traits et rien d'autre ne marchera : ni le plate solve, ni le centrage, ni l'alignement." />
+
+                                <Button Command="{Binding TestChargeCommand}" Height="36" FontSize="13" FontWeight="Bold"
+                                        Content="🔋 Test normal (environ 3 min)" />
+                                <Button Command="{Binding TestChargeDurCommand}" Height="36" FontSize="13" FontWeight="Bold"
+                                        Margin="0,6,0,0"
+                                        Content="🔥 Test DUR — moteurs rapides + caméra (environ 8 min)" />
+                                <TextBlock FontSize="11" Opacity="0.6" TextWrapping="Wrap" Margin="0,6,0,0"
+                                           Text="Le test dur pousse les moteurs à 3°/s pendant 5 secondes d'affilée, pendant que la caméra prend des photos en continu. C'est ce qui reproduit les conditions d'un alignement polaire — le moment où les pannes arrivent vraiment." />
+                            </StackPanel>
+
+                            <StackPanel Visibility="{Binding TestChargeEnCours, Converter={StaticResource BoolVersVisibilite}}">
+                                <TextBlock Text="{Binding TestChargeEtape}" FontSize="13" FontWeight="Bold"
+                                           TextWrapping="Wrap" HorizontalAlignment="Center" Margin="0,4" />
+                                <Button Command="{Binding ArreterTestChargeCommand}" Height="32" FontSize="12"
+                                        Content="✖  Arrêter le test" />
+                            </StackPanel>
+
+                            <Border CornerRadius="6" Padding="10" Margin="0,10,0,0"
+                                    Background="{Binding CouleurTestCharge}"
+                                    Visibility="{Binding TestChargeVerdictVisible, Converter={StaticResource BoolVersVisibilite}}">
+                                <TextBlock Text="{Binding TestChargeVerdict}" Foreground="White"
+                                           FontSize="12" TextWrapping="Wrap" />
+                            </Border>
+                        </StackPanel>
+                    </Border>
+                                </StackPanel>
+                            </ScrollViewer>
+                        </TabItem>
+
+                        <TabItem Header="  Prêt ?  ">
+                            <ScrollViewer VerticalScrollBarVisibility="Auto" MaxHeight="620">
+                                <StackPanel Margin="4,10,4,4">
+                                    <TextBlock TextWrapping="Wrap" FontSize="13" Margin="0,0,0,10"
+                                               Text="Le contrôle final avant de lancer une série. Faites-le une fois tout le reste réglé : il passe en revue le matériel, le suivi réellement actif, la netteté, et prend une photo d'essai." />
                             <Button Command="{Binding VerificationGeneraleCommand}" Height="44" FontSize="15" FontWeight="Bold"
                                     Content="🔎  VÉRIFICATION GÉNÉRALE"
                                     Visibility="{Binding VerificationPasEnCours, Converter={StaticResource BoolVersVisibilite}}" />
@@ -386,8 +382,25 @@
                                            FontSize="14" FontWeight="Bold" TextWrapping="Wrap"
                                            TextAlignment="Center" />
                             </Border>
-                        </StackPanel>
-                    </Border>
+
+                            <!-- Le verrou : gris et inactif tant qu'un contrôle bloque -->
+                            <Button Command="{Binding AllerSequenceurCommand}"
+                                    IsEnabled="{Binding PretPourSequenceur}"
+                                    Content="{Binding TexteBoutonSequenceur}"
+                                    Height="52" Margin="0,12,0,0" FontSize="15" FontWeight="Bold"
+                                    Visibility="{Binding VerificationBilanVisible, Converter={StaticResource BoolVersVisibilite}}" />
+
+                            <TextBlock Text="{Binding MessageSequenceur}" FontSize="13" FontWeight="Bold"
+                                       Foreground="#81C784" TextWrapping="Wrap" Margin="0,8,0,0" />
+                                </StackPanel>
+                            </ScrollViewer>
+                        </TabItem>
+
+                    </TabControl>
+
+                    <!-- Alerte (caméra/monture non connectée…) — invisible si vide -->
+                    <TextBlock Text="{Binding Avertissement}" Foreground="#FFB74D" FontSize="13" FontWeight="Bold"
+                               TextWrapping="Wrap" Margin="0,12,0,0" />
 
                     <Button Command="{Binding DemarrerCommand}" Height="64" Margin="0,16,0,0"
                             Background="#2E7D32" Foreground="White" FontSize="20" FontWeight="Bold"

@@ -121,6 +121,7 @@ namespace ModeDebutant.AlignementPolaire {
             TestChargeDurCommand = new CommandeSimple(() => _ = LancerTestCharge(TestCharge.Dur()));
             VerifierSuiviCommand = new CommandeSimple(() => _ = LancerTestCharge(TestCharge.VerificationSuivi()));
             VerificationGeneraleCommand = new CommandeSimple(() => _ = LancerVerificationGenerale());
+            AllerSequenceurCommand = new CommandeSimple(AllerSequenceur);
             ArreterTestChargeCommand = new CommandeSimple(ArreterTestCharge);
             RafraichirMateriel();
             SurveillerMonture();
@@ -1509,6 +1510,25 @@ namespace ModeDebutant.AlignementPolaire {
         public Brush CouleurVerification { get; private set; } = BrosseGris;
 
         /// <summary>
+        /// Le verrou : tant qu'un contrôle est bloquant, on ne passe pas à la
+        /// suite. Les simples points d'attention, eux, ne bloquent pas —
+        /// sinon le bouton ne se déverrouillerait jamais (il y a presque
+        /// toujours un détail à signaler).
+        /// </summary>
+        public bool PretPourSequenceur { get; private set; }
+
+        public string TexteBoutonSequenceur { get; private set; } = "▶  PASSER AU SÉQUENCEUR";
+        public string MessageSequenceur { get; private set; } = "";
+        public ICommand AllerSequenceurCommand { get; }
+
+        private void AllerSequenceur() {
+            if (!PretPourSequenceur) { return; }
+            MessageSequenceur = "C'est parti. Ouvrez le panneau « Séquenceur » (Mode Débutant) "
+                + "dans l'onglet Imagerie, choisissez votre cible et lancez la série.";
+            NotifierToutChange();
+        }
+
+        /// <summary>
         /// Passe en revue tout ce qui doit être vrai avant de lancer une série,
         /// et le dit en clair. L'idée est de découvrir les problèmes ici, au
         /// chaud et en une minute, plutôt qu'à 23 h après une heure de montage.
@@ -1518,6 +1538,8 @@ namespace ModeDebutant.AlignementPolaire {
 
             VerificationEnCours = true;
             VerificationBilanVisible = false;
+            PretPourSequenceur = false;
+            MessageSequenceur = "";
             Controles.Clear();
             NotifierToutChange();
 
@@ -1637,6 +1659,7 @@ namespace ModeDebutant.AlignementPolaire {
                 // Une seule pose prouve d'un coup : la caméra répond, la mise au
                 // point est bonne, et les étoiles sont des POINTS (donc le suivi
                 // fonctionne réellement, pas seulement en théorie).
+                double hfrEssai = double.NaN;
                 if (camera.Connected) {
                     VerificationEtape = "Photo d'essai…"; NotifierToutChange();
                     try {
@@ -1654,10 +1677,12 @@ namespace ModeDebutant.AlignementPolaire {
                         int etoiles = analyse?.DetectedStars ?? 0;
                         double hfr = analyse?.HFR ?? double.NaN;
 
+                        hfrEssai = hfr;
+
                         if (etoiles >= 20 && hfr > 0) {
                             Ajouter("Photo d'essai", NiveauControle.Ok,
-                                etoiles + " étoiles détectées, HFR " + hfr.ToString("0.00", CultureInfo.InvariantCulture)
-                                + " — mise au point et suivi confirmés sur le ciel.");
+                                etoiles + " étoiles détectées — la caméra répond et les étoiles sont des points, "
+                                + "donc le suivi fonctionne réellement.");
                         } else if (etoiles > 0) {
                             Ajouter("Photo d'essai", NiveauControle.Attention,
                                 "Seulement " + etoiles + " étoile(s) détectée(s). Mise au point à revoir, "
@@ -1671,6 +1696,38 @@ namespace ModeDebutant.AlignementPolaire {
                         throw;
                     } catch (Exception ex) {
                         Ajouter("Photo d'essai", NiveauControle.Probleme, ex.Message);
+                    }
+                }
+
+                // ---- 9 bis. La netteté --------------------------------------
+                // Il n'existe pas de « bon HFR » universel : le plancher dépend
+                // de la focale et de la taille des pixels. La seule référence
+                // qui ait du sens est VOTRE meilleur HFR de la séance, trouvé
+                // dans l'onglet Mise au point. On compare à ça.
+                if (!double.IsNaN(hfrEssai) && hfrEssai > 0) {
+                    string mesure = "HFR " + hfrEssai.ToString("0.00", CultureInfo.InvariantCulture);
+                    if (!double.IsNaN(meilleurHfrReglage) && meilleurHfrReglage > 0) {
+                        double ecart = (hfrEssai - meilleurHfrReglage) / meilleurHfrReglage * 100.0;
+                        string reference = " (votre meilleur de la séance : "
+                            + meilleurHfrReglage.ToString("0.00", CultureInfo.InvariantCulture) + ")";
+                        if (ecart <= 15) {
+                            Ajouter("Netteté", NiveauControle.Ok,
+                                mesure + " — au niveau de votre meilleur" + reference);
+                        } else if (ecart <= 35) {
+                            Ajouter("Netteté", NiveauControle.Attention,
+                                mesure + ", soit " + ecart.ToString("0", CultureInfo.InvariantCulture)
+                                + " % au-dessus" + reference
+                                + ". Dérive thermique : prévoyez un refocus.");
+                        } else {
+                            Ajouter("Netteté", NiveauControle.Probleme,
+                                mesure + ", soit " + ecart.ToString("0", CultureInfo.InvariantCulture)
+                                + " % au-dessus" + reference
+                                + ". Refaites la mise au point avant de lancer.");
+                        }
+                    } else {
+                        Ajouter("Netteté", NiveauControle.Attention,
+                            mesure + " — aucune référence : passez par l'onglet « Mise au point » "
+                            + "pour trouver le minimum, le plugin s'en souviendra.");
                     }
                 }
 
@@ -1690,15 +1747,21 @@ namespace ModeDebutant.AlignementPolaire {
                     if (c.Niveau == NiveauControle.Attention) { attentions++; }
                 }
 
+                MessageSequenceur = "";
+                PretPourSequenceur = problemes == 0;
+
                 if (problemes > 0) {
                     VerificationBilan = "⛔ " + problemes + " point(s) bloquant(s) — corrigez avant de lancer la séance";
                     CouleurVerification = BrosseRouge;
+                    TexteBoutonSequenceur = "🔒  " + problemes + " point(s) à corriger";
                 } else if (attentions > 0) {
                     VerificationBilan = "⚠ Jouable, avec " + attentions + " point(s) d'attention";
                     CouleurVerification = BrosseOrange;
+                    TexteBoutonSequenceur = "▶  PASSER AU SÉQUENCEUR  (" + attentions + " point(s) d'attention)";
                 } else {
                     VerificationBilan = "✅ TOUT EST PRÊT — vous pouvez lancer votre séance";
                     CouleurVerification = BrosseVert;
+                    TexteBoutonSequenceur = "▶  PASSER AU SÉQUENCEUR";
                 }
                 VerificationBilanVisible = true;
             } catch (OperationCanceledException) {
