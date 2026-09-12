@@ -823,16 +823,53 @@ namespace ModeDebutant.Sequenceur {
                 return;
             }
 
-            MessageCible = "🔭 Pointage en cours vers « " + CibleChoisie.Nom + " »… (le télescope se déplace)";
+            // Un GoTo seul se fie au modèle de pointage interne de la monture.
+            // Quand ce modèle est faux — monture allumée hors position de repos,
+            // pas manqués, vis d'alignement retouchées depuis — on atterrit à
+            // plusieurs degrés de la cible SANS que rien ne le signale.
+            // Dès que la caméra est là, on fait donc le vrai centrage :
+            // photo -> reconnaissance du ciel -> correction, jusqu'à la
+            // tolérance du profil. Même instruction que dans la série.
+            bool centrageDispo = cameraMediator.GetInfo().Connected;
+
+            MessageCible = centrageDispo
+                ? "🔭 Pointage et centrage précis vers « " + CibleChoisie.Nom + " »… (photo, reconnaissance du ciel, correction — comptez quelques dizaines de secondes)"
+                : "🔭 Pointage en cours vers « " + CibleChoisie.Nom + " »… (le télescope se déplace)";
             RaisePropertyChanged(nameof(MessageCible));
 
             try {
-                var reussi = await telescopeMediator.SlewToCoordinatesAsync(CibleChoisie.Coordonnees, CancellationToken.None);
-                MessageCible = reussi
-                    ? "✅ Télescope pointé sur « " + CibleChoisie.Nom + " ». Vous pouvez lancer la série."
-                    : "⚠ Le pointage a été refusé par la monture. Vérifiez qu'elle est déparquée et que le suivi est actif.";
+                if (centrageDispo) {
+                    // « Center » lit sa cible dans le conteneur parent :
+                    // on lui en fabrique un, identique à celui de la série.
+                    var conteneur = new DeepSkyObjectContainer(profileService, nighttimeCalculator, framingAssistantVM,
+                        applicationMediator, planetariumFactory, cameraMediator, filterWheelMediator);
+                    conteneur.Name = CibleChoisie.Nom;
+                    conteneur.Target.TargetName = CibleChoisie.Nom;
+                    conteneur.Target.InputCoordinates.Coordinates = CibleChoisie.Coordonnees;
+
+                    var centrage = new Center(profileService, telescopeMediator, imagingMediator,
+                        filterWheelMediator, guiderMediator, domeMediator, domeFollower,
+                        plateSolverFactory, windowServiceFactory);
+                    conteneur.Add(centrage); // c'est l'ajout qui rattache le parent
+
+                    // Borne de sécurité : un centrage qui n'aboutit pas ne doit
+                    // pas bloquer le panneau indéfiniment.
+                    using (var arret = new CancellationTokenSource(TimeSpan.FromMinutes(5))) {
+                        await centrage.Run(new Progress<NINA.Core.Model.ApplicationStatus>(), arret.Token);
+                    }
+
+                    MessageCible = "✅ « " + CibleChoisie.Nom + " » est centré, et c'est VÉRIFIÉ : le ciel a été photographié et reconnu. Vous pouvez lancer la série.";
+                } else {
+                    var reussi = await telescopeMediator.SlewToCoordinatesAsync(CibleChoisie.Coordonnees, CancellationToken.None);
+                    MessageCible = reussi
+                        ? "⚠ Télescope pointé sur « " + CibleChoisie.Nom + " » — mais SANS vérification : la caméra n'est pas connectée, donc aucun contrôle n'a pu être fait. Si la monture se trompe, rien ne le dira. Connectez la caméra et recommencez."
+                        : "⚠ Le pointage a été refusé par la monture. Vérifiez qu'elle est déparquée et que le suivi est actif.";
+                }
+            } catch (OperationCanceledException) {
+                MessageCible = "⚠ Le centrage a dépassé 5 minutes et a été interrompu. Causes habituelles : étoiles filées (le suivi ne fonctionne pas), pose de plate-solve trop courte, ou ciel voilé.";
             } catch (Exception ex) {
-                MessageCible = "⚠ Le pointage a échoué : " + ex.Message;
+                MessageCible = "⚠ Le pointage a échoué : " + ex.Message
+                    + (centrageDispo ? " — si c'est la reconnaissance du ciel qui échoue, vérifiez que les étoiles sont des points et non des traits." : "");
             }
             RaisePropertyChanged(nameof(MessageCible));
         }
