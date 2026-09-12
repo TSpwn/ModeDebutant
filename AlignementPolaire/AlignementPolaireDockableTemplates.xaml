@@ -18,7 +18,7 @@
 
     <DataTemplate x:Key="ModeDebutant.AlignementPolaire.AlignementPolaireDockableVM_Dockable">
         <ScrollViewer VerticalScrollBarVisibility="Auto">
-            <StackPanel Margin="12" MaxWidth="460">
+            <StackPanel Margin="12" MaxWidth="980">
 
                 <!-- ── La monture en direct : position + bouge / bouge pas —
                      visible dans toutes les phases dès qu'elle est connectée ── -->
@@ -203,10 +203,21 @@
                             <TextBlock Margin="0,14,0,2" FontSize="13" TextWrapping="Wrap">
                                 <Run Text="Précision visée : " /><Run FontWeight="Bold" Text="{Binding ToleranceArcmin, StringFormat={}{0:0.0}′, Mode=OneWay}" />
                             </TextBlock>
-                            <Slider Value="{Binding ToleranceArcmin}" Minimum="0.5" Maximum="10"
+                            <Slider Value="{Binding ToleranceArcmin}" Minimum="0.5" Maximum="30"
                                     TickFrequency="0.5" IsSnapToTickEnabled="True" />
                             <TextBlock FontSize="11" Opacity="0.6" TextWrapping="Wrap"
-                                       Text="Quand l'erreur passe sous ce seuil, l'alignement est considéré terminé et s'arrête tout seul. 1,0′ convient très bien pour débuter." />
+                                       Text="Quand l'erreur passe sous ce seuil, l'alignement est considéré terminé et s'arrête tout seul. Ne visez pas trop serré : ce qui compte n'est pas la minute d'arc, c'est le filé en pixels sur VOS poses (affiché pendant le réglage). À courte focale, 10′ à 20′ suffisent largement." />
+
+                            <!-- Pose de référence : sert à traduire l'erreur en pixels -->
+                            <DockPanel Margin="0,10,0,0">
+                                <TextBox DockPanel.Dock="Right" Width="70" Height="28" FontSize="13"
+                                         VerticalContentAlignment="Center" TextAlignment="Center"
+                                         Text="{Binding PoseReferenceTexte, UpdateSourceTrigger=LostFocus}" />
+                                <TextBlock VerticalAlignment="Center" FontSize="12" TextWrapping="Wrap"
+                                           Text="Pose que vous ferez cette nuit (secondes)" />
+                            </DockPanel>
+                            <TextBlock FontSize="11" Opacity="0.6" TextWrapping="Wrap" Margin="0,2,0,0"
+                                       Text="Sert uniquement à calculer le filé en pixels pendant le réglage." />
 
                             <!-- Section repliée : tous les réglages, pour qui veut aller plus loin -->
                             <Expander Margin="0,14,0,0" FontSize="13">
@@ -354,22 +365,44 @@
                         </StackPanel>
                     </Border>
 
-                    <!-- Les deux cartes "vis" : seule la carte active est en pleine
-                         couleur, l'autre est estompée -->
+                    <!-- LE chiffre qui dit quand s'arrêter : le filé réel en pixels -->
+                    <Border Background="#22FFFFFF" CornerRadius="8" Padding="10" Margin="0,0,0,12"
+                            Visibility="{Binding DeriveVisible, Converter={StaticResource BoolVersVisibilite}}">
+                        <StackPanel>
+                            <TextBlock Text="CE QUE ÇA DONNE SUR VOS POSES" FontSize="10" Opacity="0.6"
+                                       HorizontalAlignment="Center" />
+                            <TextBlock Text="{Binding DeriveTexte}" FontSize="15" FontWeight="Bold"
+                                       TextWrapping="Wrap" TextAlignment="Center"
+                                       Foreground="{Binding CouleurDerive}" Margin="0,4,0,0" />
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Les deux cartes "vis" : les DEUX sont toujours lisibles.
+                         Celle dont l'erreur domine est entourée en jaune. -->
                     <UniformGrid Columns="2">
 
                         <!-- Carte azimut = vis du bas (gauche-droite) -->
-                        <Border CornerRadius="8" Padding="10" Margin="0,0,6,0" Background="#33888888">
+                        <!-- Les valeurs par défaut sont posées DANS le Style, pas en
+                             attributs : une valeur locale est prioritaire sur un
+                             Setter de trigger et l'empêcherait de s'appliquer. -->
+                        <Border CornerRadius="8" Padding="10" Margin="0,0,6,0">
                             <Border.Style>
                                 <Style TargetType="Border">
+                                    <Setter Property="Background" Value="#33888888" />
+                                    <Setter Property="BorderBrush" Value="Transparent" />
+                                    <Setter Property="BorderThickness" Value="2" />
                                     <Style.Triggers>
-                                        <DataTrigger Binding="{Binding AzimutActif}" Value="False">
-                                            <Setter Property="Opacity" Value="0.35" />
+                                        <DataTrigger Binding="{Binding AzimutPrioritaire}" Value="True">
+                                            <Setter Property="BorderBrush" Value="#FFD54F" />
+                                            <Setter Property="Background" Value="#55888888" />
                                         </DataTrigger>
                                     </Style.Triggers>
                                 </Style>
                             </Border.Style>
                             <StackPanel>
+                                <TextBlock Text="À FAIRE EN PREMIER" FontSize="10" FontWeight="Bold"
+                                           Foreground="#FFD54F" HorizontalAlignment="Center"
+                                           Visibility="{Binding AzimutPrioritaire, Converter={StaticResource BoolVersVisibilite}}" />
                                 <TextBlock Text="Vis du bas" FontSize="15" FontWeight="Bold" HorizontalAlignment="Center" />
                                 <TextBlock Text="(gauche-droite)" FontSize="12" HorizontalAlignment="Center" />
                                 <TextBlock Text="{Binding FlecheAzimut}" FontSize="64"
@@ -382,17 +415,24 @@
                         </Border>
 
                         <!-- Carte altitude = vis du haut (monter-descendre) -->
-                        <Border CornerRadius="8" Padding="10" Margin="6,0,0,0" Background="#33888888">
+                        <Border CornerRadius="8" Padding="10" Margin="6,0,0,0">
                             <Border.Style>
                                 <Style TargetType="Border">
+                                    <Setter Property="Background" Value="#33888888" />
+                                    <Setter Property="BorderBrush" Value="Transparent" />
+                                    <Setter Property="BorderThickness" Value="2" />
                                     <Style.Triggers>
-                                        <DataTrigger Binding="{Binding AltitudeActif}" Value="False">
-                                            <Setter Property="Opacity" Value="0.35" />
+                                        <DataTrigger Binding="{Binding AltitudePrioritaire}" Value="True">
+                                            <Setter Property="BorderBrush" Value="#FFD54F" />
+                                            <Setter Property="Background" Value="#55888888" />
                                         </DataTrigger>
                                     </Style.Triggers>
                                 </Style>
                             </Border.Style>
                             <StackPanel>
+                                <TextBlock Text="À FAIRE EN PREMIER" FontSize="10" FontWeight="Bold"
+                                           Foreground="#FFD54F" HorizontalAlignment="Center"
+                                           Visibility="{Binding AltitudePrioritaire, Converter={StaticResource BoolVersVisibilite}}" />
                                 <TextBlock Text="Vis du haut" FontSize="15" FontWeight="Bold" HorizontalAlignment="Center" />
                                 <TextBlock Text="(monter-descendre)" FontSize="12" HorizontalAlignment="Center" />
                                 <TextBlock Text="{Binding FlecheAltitude}" FontSize="64"
@@ -416,7 +456,7 @@
                                HorizontalAlignment="Center" Margin="0,6,0,0" />
 
                     <TextBlock TextWrapping="Wrap" FontSize="12" Margin="0,10,0,0" Opacity="0.7"
-                               Text="Tournez doucement la vis indiquée, puis attendez quelques secondes : les chiffres se mettent à jour automatiquement après chaque photo." />
+                               Text="Les deux vis sont affichées en permanence. Commencez par celle entourée en jaune (la plus grosse erreur), tournez doucement, puis attendez quelques secondes : les chiffres se mettent à jour après chaque photo. Arrêtez-vous dès que le filé en pixels vous convient — inutile de chercher la perfection." />
 
                     <Button Command="{Binding ArreterCommand}" Height="40" Margin="0,12,0,0"
                             FontSize="14" Content="■  TERMINER" />

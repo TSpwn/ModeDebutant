@@ -1020,10 +1020,14 @@ namespace ModeDebutant.AlignementPolaire {
             // Terminé = précision visée atteinte (ou mieux que « Parfait »)
             bool termine = total < SeuilParfait || total <= ToleranceArcmin;
 
-            // Une seule flèche active à la fois : on corrige d'abord
-            // l'axe dont l'erreur est la plus grande
-            AzimutActif = !termine && Math.Abs(azimut) >= Math.Abs(altitude);
-            AltitudeActif = !termine && !AzimutActif;
+            // Les DEUX axes restent lisibles en permanence : on veut voir les
+            // deux chiffres et les deux consignes, toujours. Un seul est mis en
+            // avant comme « à corriger en premier » (celui dont l'erreur
+            // domine) — mais l'autre n'est plus estompé.
+            AzimutActif = !termine;
+            AltitudeActif = !termine;
+            AzimutPrioritaire = !termine && Math.Abs(azimut) >= Math.Abs(altitude);
+            AltitudePrioritaire = !termine && !AzimutPrioritaire;
 
             // Sens des flèches — conventions relevées dans le code de TPPA :
             //  * azimut positif  -> pousser vers la GAUCHE (les deux hémisphères)
@@ -1046,6 +1050,60 @@ namespace ModeDebutant.AlignementPolaire {
             // Détail par vis (même format lisible : 1 décimale)
             AzimutTexte = Math.Abs(azimut).ToString("0.0") + "′";
             AltitudeTexte = Math.Abs(altitude).ToString("0.0") + "′";
+
+            // Et surtout : ce que cette erreur donne VRAIMENT sur une pose
+            MettreAJourDerive(total);
+        }
+
+        // ------------------------------------------------------------------
+        // Traduction de l'erreur en filé réel sur une pose
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// Une erreur d'alignement polaire ne se juge pas en minutes d'arc dans
+        /// l'absolu : elle se juge en PIXELS de filé sur la pose qu'on fait
+        /// réellement. Les mêmes 10′ sont invisibles à 135 mm et rédhibitoires
+        /// à 1500 mm. C'est ce chiffre-là, et lui seul, qui dit quand on peut
+        /// arrêter de tourner les vis.
+        ///
+        /// Dérive (″) = 0,0043752 × erreur(′) × durée(s)
+        ///   (rotation terrestre 7,2921e-5 rad/s, projetée sur l'écart d'axe,
+        ///    convertie en secondes d'arc — 206265″ par radian)
+        /// </summary>
+        private void MettreAJourDerive(double erreurArcmin) {
+            double focale = profileService.ActiveProfile.TelescopeSettings.FocalLength;   // mm
+            double pixel = profileService.ActiveProfile.CameraSettings.PixelSize;         // µm
+
+            // Rappel : NaN répond FAUX à toute comparaison, on le teste à part
+            if (double.IsNaN(focale) || focale <= 0 || double.IsNaN(pixel) || pixel <= 0) {
+                DeriveTexte = "";
+                DeriveVisible = false;
+                return;
+            }
+
+            double pose = PoseReferenceSecondes;
+            if (double.IsNaN(pose) || pose <= 0) { pose = 60.0; }
+
+            double echelle = 206.265 * pixel / focale;               // ″ par pixel
+            double deriveArcsec = 0.0043752 * erreurArcmin * pose;   // ″ sur la pose
+            double derivePixels = deriveArcsec / echelle;
+
+            string verdict;
+            if (derivePixels < 0.5) {
+                verdict = "invisible — c'est déjà bon"; CouleurDerive = BrosseVert;
+            } else if (derivePixels < 1.5) {
+                verdict = "sans conséquence — vous pouvez arrêter"; CouleurDerive = BrosseVert;
+            } else if (derivePixels < 3.0) {
+                verdict = "léger filé, encore acceptable"; CouleurDerive = BrosseOrange;
+            } else {
+                verdict = "filé visible, continuez à régler"; CouleurDerive = BrosseRouge;
+            }
+
+            DeriveTexte = derivePixels.ToString("0.0", CultureInfo.InvariantCulture)
+                + (derivePixels >= 2 ? " pixels" : " pixel") + " de filé sur une pose de "
+                + pose.ToString("0", CultureInfo.InvariantCulture) + " s"
+                + Environment.NewLine + verdict;
+            DeriveVisible = true;
         }
 
         // ------------------------------------------------------------------
@@ -1077,6 +1135,27 @@ namespace ModeDebutant.AlignementPolaire {
         public double ToleranceArcmin {
             get => reglages.GetValueDouble(nameof(ToleranceArcmin), 1.0);
             set { reglages.SetValueDouble(nameof(ToleranceArcmin), value); RaisePropertyChanged(); }
+        }
+
+        /// <summary>
+        /// Durée de la pose que vous ferez réellement cette nuit (s). Sert
+        /// uniquement à traduire l'erreur d'alignement en pixels de filé —
+        /// le seul chiffre qui dise si c'est « assez bon ». 60 s par défaut.
+        /// </summary>
+        public double PoseReferenceSecondes {
+            get => reglages.GetValueDouble(nameof(PoseReferenceSecondes), 60.0);
+            set { reglages.SetValueDouble(nameof(PoseReferenceSecondes), value); RaisePropertyChanged(); }
+        }
+
+        public string PoseReferenceTexte {
+            get => PoseReferenceSecondes.ToString("0", CultureInfo.InvariantCulture);
+            set {
+                var t = value?.Trim().Replace(',', '.');
+                if (double.TryParse(t, NumberStyles.Float, CultureInfo.InvariantCulture, out var d) && d > 0) {
+                    PoseReferenceSecondes = d;
+                }
+                RaisePropertyChanged();
+            }
         }
 
         // ------------------------------------------------------------------
@@ -1230,6 +1309,15 @@ namespace ModeDebutant.AlignementPolaire {
 
         public bool AzimutActif { get; private set; }
         public bool AltitudeActif { get; private set; }
+
+        /// <summary>Axe dont l'erreur domine : à corriger en premier (les deux restent affichés).</summary>
+        public bool AzimutPrioritaire { get; private set; }
+        public bool AltitudePrioritaire { get; private set; }
+
+        /// <summary>« 0,7 pixel de filé sur une pose de 60 s — sans conséquence ».</summary>
+        public string DeriveTexte { get; private set; } = "";
+        public bool DeriveVisible { get; private set; }
+        public Brush CouleurDerive { get; private set; } = BrosseGris;
         public string FlecheAzimut { get; private set; } = "";
         public string FlecheAltitude { get; private set; } = "";
         public string ConsigneAzimut { get; private set; } = "";
