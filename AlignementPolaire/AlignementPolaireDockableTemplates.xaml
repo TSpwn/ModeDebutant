@@ -167,6 +167,34 @@
                         </StackPanel>
                     </Border>
 
+                    <!-- ── Test de charge : la monture tient-elle quand
+                         les moteurs travaillent ? ── -->
+                    <Border Background="#22888888" CornerRadius="8" Padding="12" Margin="0,14,0,0">
+                        <StackPanel>
+                            <TextBlock Text="🔋 Test de la monture (alimentation)" FontSize="14" FontWeight="Bold" />
+                            <TextBlock FontSize="11" Opacity="0.6" TextWrapping="Wrap" Margin="0,2,0,8"
+                                       Text="Fait travailler les deux moteurs pendant une minute et vérifie trois choses : la monture obéit-elle, s'arrête-t-elle quand on lui dit, et reste-t-elle connectée ? Un axe qui ne s'arrête pas est le signe d'une alimentation qui faiblit sous charge. À faire au chaud, appareil photo retiré si possible — la monture revient à son point de départ." />
+
+                            <Button Command="{Binding TestChargeCommand}" Height="36" FontSize="13" FontWeight="Bold"
+                                    Content="🔋 Lancer le test de charge (environ 1 min 30)"
+                                    Visibility="{Binding TestChargePasEnCours, Converter={StaticResource BoolVersVisibilite}}" />
+
+                            <StackPanel Visibility="{Binding TestChargeEnCours, Converter={StaticResource BoolVersVisibilite}}">
+                                <TextBlock Text="{Binding TestChargeEtape}" FontSize="13" FontWeight="Bold"
+                                           TextWrapping="Wrap" HorizontalAlignment="Center" Margin="0,4" />
+                                <Button Command="{Binding ArreterTestChargeCommand}" Height="32" FontSize="12"
+                                        Content="✖  Arrêter le test" />
+                            </StackPanel>
+
+                            <Border CornerRadius="6" Padding="10" Margin="0,10,0,0"
+                                    Background="{Binding CouleurTestCharge}"
+                                    Visibility="{Binding TestChargeVerdictVisible, Converter={StaticResource BoolVersVisibilite}}">
+                                <TextBlock Text="{Binding TestChargeVerdict}" Foreground="White"
+                                           FontSize="12" TextWrapping="Wrap" />
+                            </Border>
+                        </StackPanel>
+                    </Border>
+
                     <!-- Bloc des options de démarrage -->
                     <Border Background="#22888888" CornerRadius="8" Padding="12" Margin="0,14,0,0">
                         <StackPanel>

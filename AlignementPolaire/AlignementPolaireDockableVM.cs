@@ -116,6 +116,8 @@ namespace ModeDebutant.AlignementPolaire {
             EnregistrerMaterielCommand = new CommandeSimple(EnregistrerMateriel);
             CommencerReglageCommand = new CommandeSimple(() => _ = CommencerReglage());
             ArreterReglageCommand = new CommandeSimple(ArreterReglage);
+            TestChargeCommand = new CommandeSimple(() => _ = LancerTestCharge());
+            ArreterTestChargeCommand = new CommandeSimple(ArreterTestCharge);
             RafraichirMateriel();
             SurveillerMonture();
 
@@ -1324,6 +1326,112 @@ namespace ModeDebutant.AlignementPolaire {
         public string ConsigneAltitude { get; private set; } = "";
         public string AzimutTexte { get; private set; } = "";
         public string AltitudeTexte { get; private set; } = "";
+
+        // ------------------------------------------------------------------
+        // Test de charge de la monture (diagnostic d'alimentation)
+        // ------------------------------------------------------------------
+
+        public ICommand TestChargeCommand { get; }
+        public ICommand ArreterTestChargeCommand { get; }
+
+        private CancellationTokenSource arretTestCharge;
+
+        public bool TestChargeEnCours { get; private set; }
+        public bool TestChargePasEnCours => !TestChargeEnCours;
+        public string TestChargeEtape { get; private set; } = "";
+        public string TestChargeVerdict { get; private set; } = "";
+        public bool TestChargeVerdictVisible { get; private set; }
+        public Brush CouleurTestCharge { get; private set; } = BrosseGris;
+
+        private void ArreterTestCharge() {
+            arretTestCharge?.Cancel();
+        }
+
+        /// <summary>
+        /// Fait travailler les deux moteurs et regarde si la liaison tient.
+        /// Une monture correctement alimentée obéit et s'arrête ; une monture
+        /// sous-alimentée rate des ordres — en particulier l'ordre d'ARRÊT,
+        /// ce qui la laisse partir en roue libre.
+        /// </summary>
+        private async Task LancerTestCharge() {
+            if (TestChargeEnCours) { return; }
+
+            var monture = telescopeMediator.GetInfo();
+            if (!monture.Connected) {
+                TestChargeVerdict = "⚠ La monture n'est pas connectée. Onglet Équipement > Monture, puis revenez.";
+                CouleurTestCharge = BrosseOrange;
+                TestChargeVerdictVisible = true;
+                NotifierToutChange();
+                return;
+            }
+
+            TestChargeEnCours = true;
+            TestChargeVerdictVisible = false;
+            TestChargeEtape = "Démarrage…";
+            NotifierToutChange();
+
+            arretTestCharge = new CancellationTokenSource();
+            try {
+                var test = new TestCharge(telescopeMediator);
+                var r = await test.Lancer(4, etape => {
+                    TestChargeEtape = etape;
+                    NotifierToutChange();
+                }, arretTestCharge.Token);
+
+                // --- Le verdict, en clair ---
+                string v;
+                if (r.CyclesFaits == 0) {
+                    v = "Test non réalisé." + Environment.NewLine + r.Detail;
+                    CouleurTestCharge = BrosseGris;
+                } else if (r.PasArrete > 0) {
+                    v = "⛔ PROBLÈME CONFIRMÉ" + Environment.NewLine
+                      + r.PasArrete + " fois sur " + r.CyclesFaits + ", un axe a continué de bouger APRÈS l'ordre d'arrêt."
+                      + Environment.NewLine + Environment.NewLine
+                      + "C'est exactement ce qui fait partir la monture n'importe où en pleine séance : l'ordre d'arrêt se perd. "
+                      + "Cause la plus fréquente : la tension chute quand les moteurs tirent du courant. "
+                      + "Vérifiez l'alimentation (12 V stable sous charge, pas une batterie qui s'affaiblit) et la prise d'alimentation.";
+                    CouleurTestCharge = BrosseRouge;
+                } else if (r.PasBouge > 0) {
+                    v = "⛔ La monture n'a pas obéi" + Environment.NewLine
+                      + r.PasBouge + " fois sur " + r.CyclesFaits + ", rien n'a bougé alors qu'un déplacement était commandé."
+                      + Environment.NewLine + Environment.NewLine
+                      + "Regardez d'abord le mécanique : freins (clutches) desserrés, courroie détendue, vis de poulie. "
+                      + "Puis l'alimentation.";
+                    CouleurTestCharge = BrosseRouge;
+                } else if (r.Deconnexions > 0 || r.Erreurs > 0) {
+                    v = "⚠ La liaison est instable" + Environment.NewLine
+                      + r.Deconnexions + " coupure(s) et " + r.Erreurs + " erreur(s) pendant le test."
+                      + Environment.NewLine + Environment.NewLine
+                      + "Les axes obéissent, mais la communication décroche. Pistes : câble USB, "
+                      + "Latency Timer du port série (16 ms par défaut, à passer à 1 ms), alimentation.";
+                    CouleurTestCharge = BrosseOrange;
+                } else {
+                    v = "✅ La monture tient la charge" + Environment.NewLine
+                      + r.CyclesFaits + " cycles : les deux axes ont bougé quand il le fallait, "
+                      + "se sont arrêtés quand il le fallait, sans aucune coupure."
+                      + Environment.NewLine + Environment.NewLine
+                      + "L'alimentation et la liaison ne sont pas en cause. Si vos séances échouent encore, "
+                      + "cherchez ailleurs (position de repos au démarrage, alignement, suivi).";
+                    CouleurTestCharge = BrosseVert;
+                }
+
+                if (r.Interrompu) { v += Environment.NewLine + Environment.NewLine + "(test interrompu avant la fin)"; }
+                if (!string.IsNullOrWhiteSpace(r.Detail)) { v += Environment.NewLine + Environment.NewLine + r.Detail.Trim(); }
+
+                TestChargeVerdict = v;
+                TestChargeVerdictVisible = true;
+            } catch (Exception ex) {
+                TestChargeVerdict = "⚠ Le test a échoué : " + ex.Message;
+                CouleurTestCharge = BrosseOrange;
+                TestChargeVerdictVisible = true;
+            } finally {
+                arretTestCharge?.Dispose();
+                arretTestCharge = null;
+                TestChargeEnCours = false;
+                TestChargeEtape = "";
+                NotifierToutChange();
+            }
+        }
 
         /// <summary>Prévient l'écran que les valeurs ont changé, pour qu'il se redessine.</summary>
         private void NotifierToutChange() {
