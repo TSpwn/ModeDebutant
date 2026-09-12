@@ -118,6 +118,7 @@ namespace ModeDebutant.AlignementPolaire {
             ArreterReglageCommand = new CommandeSimple(ArreterReglage);
             TestChargeCommand = new CommandeSimple(() => _ = LancerTestCharge(TestCharge.Normal()));
             TestChargeDurCommand = new CommandeSimple(() => _ = LancerTestCharge(TestCharge.Dur()));
+            VerifierSuiviCommand = new CommandeSimple(() => _ = LancerTestCharge(TestCharge.VerificationSuivi()));
             ArreterTestChargeCommand = new CommandeSimple(ArreterTestCharge);
             RafraichirMateriel();
             SurveillerMonture();
@@ -1334,6 +1335,7 @@ namespace ModeDebutant.AlignementPolaire {
 
         public ICommand TestChargeCommand { get; }
         public ICommand TestChargeDurCommand { get; }
+        public ICommand VerifierSuiviCommand { get; }
         public ICommand ArreterTestChargeCommand { get; }
 
         private CancellationTokenSource arretTestCharge;
@@ -1393,7 +1395,37 @@ namespace ModeDebutant.AlignementPolaire {
 
                 // --- Le verdict, en clair ---
                 string v;
-                if (r.Mesures == 0) {
+                if (options.SuiviSeulement) {
+                    // Le sidéral vaut 15,04″/s. Une monture qui suit garde ses
+                    // coordonnées : la dérive tombe à zéro. Une monture à
+                    // l'arrêt voit sa position rapportée filer au sidéral.
+                    double dsec = r.DeriveReposDegParSec * 3600;
+                    if (dsec < 3.0) {
+                        v = "✅ LE SUIVI FONCTIONNE" + Environment.NewLine
+                          + "Dérive de " + dsec.ToString("0.0", CultureInfo.InvariantCulture)
+                          + "″/s : la monture tient sa position, elle accompagne bien le ciel."
+                          + Environment.NewLine + Environment.NewLine
+                          + "Vous pouvez lancer votre séance.";
+                        CouleurTestCharge = BrosseVert;
+                    } else if (dsec > 10.0) {
+                        v = "⛔ LE SUIVI N'EST PAS ACTIF" + Environment.NewLine
+                          + "Dérive de " + dsec.ToString("0.0", CultureInfo.InvariantCulture)
+                          + "″/s, soit la vitesse sidérale : la monture est mécaniquement immobile "
+                          + "pendant que le ciel tourne."
+                          + Environment.NewLine + Environment.NewLine
+                          + "Vos étoiles seront des traits et le plate solve échouera. "
+                          + "Allez dans Équipement > Monture : déparquez-la (Unpark), mettez Tracking sur "
+                          + "Sidereal, cliquez sur « Set tracking rate », puis relancez cette vérification.";
+                        CouleurTestCharge = BrosseRouge;
+                    } else {
+                        v = "⚠ SUIVI PARTIEL" + Environment.NewLine
+                          + "Dérive de " + dsec.ToString("0.0", CultureInfo.InvariantCulture)
+                          + "″/s : la monture bouge, mais pas à la bonne vitesse."
+                          + Environment.NewLine + Environment.NewLine
+                          + "Vérifiez que le mode de suivi est bien « Sidereal » et non lunaire ou solaire.";
+                        CouleurTestCharge = BrosseOrange;
+                    }
+                } else if (r.Mesures == 0) {
                     v = "Test non réalisé.";
                     CouleurTestCharge = BrosseGris;
                 } else if (r.PasArrete > 0) {

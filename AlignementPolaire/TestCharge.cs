@@ -73,10 +73,23 @@ namespace ModeDebutant.AlignementPolaire {
             /// <summary>Durée des poses de la caméra, en secondes.</summary>
             public double PoseCamera = 2.0;
 
-            public string Nom => AvecCamera ? "DUR (moteurs + caméra)" : "normal";
+            public string Nom => NbCycles == 0 ? "verification du suivi"
+                : AvecCamera ? "DUR (moteurs + caméra)" : "normal";
+
+            /// <summary>Vrai quand on ne fait que mesurer la dérive au repos.</summary>
+            public bool SuiviSeulement => NbCycles == 0;
         }
 
         public static Options Normal() => new Options();
+
+        /// <summary>
+        /// Vérification du suivi seule : on ne bouge rien, on regarde juste si
+        /// la position reste stable. Une monture qui suit garde des
+        /// coordonnées constantes ; une monture à l'arrêt voit sa position
+        /// rapportée dériver à la vitesse sidérale (15″/s). 20 secondes
+        /// suffisent pour faire la différence sans aucune ambiguïté.
+        /// </summary>
+        public static Options VerificationSuivi() => new Options { NbCycles = 0, AvecCamera = false };
 
         /// <summary>
         /// Mode dur : plus vite, plus longtemps, avec la caméra qui travaille
