@@ -116,7 +116,8 @@ namespace ModeDebutant.AlignementPolaire {
             EnregistrerMaterielCommand = new CommandeSimple(EnregistrerMateriel);
             CommencerReglageCommand = new CommandeSimple(() => _ = CommencerReglage());
             ArreterReglageCommand = new CommandeSimple(ArreterReglage);
-            TestChargeCommand = new CommandeSimple(() => _ = LancerTestCharge());
+            TestChargeCommand = new CommandeSimple(() => _ = LancerTestCharge(TestCharge.Normal()));
+            TestChargeDurCommand = new CommandeSimple(() => _ = LancerTestCharge(TestCharge.Dur()));
             ArreterTestChargeCommand = new CommandeSimple(ArreterTestCharge);
             RafraichirMateriel();
             SurveillerMonture();
@@ -1332,6 +1333,7 @@ namespace ModeDebutant.AlignementPolaire {
         // ------------------------------------------------------------------
 
         public ICommand TestChargeCommand { get; }
+        public ICommand TestChargeDurCommand { get; }
         public ICommand ArreterTestChargeCommand { get; }
 
         private CancellationTokenSource arretTestCharge;
@@ -1353,7 +1355,7 @@ namespace ModeDebutant.AlignementPolaire {
         /// sous-alimentée rate des ordres — en particulier l'ordre d'ARRÊT,
         /// ce qui la laisse partir en roue libre.
         /// </summary>
-        private async Task LancerTestCharge() {
+        private async Task LancerTestCharge(TestCharge.Options options) {
             if (TestChargeEnCours) { return; }
 
             var monture = telescopeMediator.GetInfo();
@@ -1372,30 +1374,42 @@ namespace ModeDebutant.AlignementPolaire {
 
             arretTestCharge = new CancellationTokenSource();
             try {
-                var test = new TestCharge(telescopeMediator);
-                var r = await test.Lancer(4, etape => {
+                // On fournit au test une façon de prendre une photo, sans qu'il
+                // ait à connaître la caméra. null si elle n'est pas branchée.
+                Func<double, System.Threading.CancellationToken, Task> photo = null;
+                if (options.AvecCamera && cameraMediator.GetInfo().Connected) {
+                    photo = async (pose, jeton) => {
+                        var capture = new CaptureSequence(pose, CaptureSequence.ImageTypes.SNAPSHOT,
+                            null, new NINA.Core.Model.Equipment.BinningMode(1, 1), 1);
+                        await imagingMediator.CaptureAndPrepareImage(capture,
+                            new PrepareImageParameters(false, false), jeton, null);
+                    };
+                }
+                var test = new TestCharge(telescopeMediator, photo);
+                var r = await test.Lancer(options, etape => {
                     TestChargeEtape = etape;
                     NotifierToutChange();
                 }, arretTestCharge.Token);
 
                 // --- Le verdict, en clair ---
                 string v;
-                if (r.CyclesFaits == 0) {
-                    v = "Test non réalisé." + Environment.NewLine + r.Detail;
+                if (r.Mesures == 0) {
+                    v = "Test non réalisé.";
                     CouleurTestCharge = BrosseGris;
                 } else if (r.PasArrete > 0) {
                     v = "⛔ PROBLÈME CONFIRMÉ" + Environment.NewLine
-                      + r.PasArrete + " fois sur " + r.CyclesFaits + ", un axe a continué de bouger APRÈS l'ordre d'arrêt."
+                      + r.PasArrete + " fois sur " + r.Mesures + ", un axe a continué de bouger APRÈS l'ordre d'arrêt."
                       + Environment.NewLine + Environment.NewLine
-                      + "C'est exactement ce qui fait partir la monture n'importe où en pleine séance : l'ordre d'arrêt se perd. "
-                      + "Cause la plus fréquente : la tension chute quand les moteurs tirent du courant. "
-                      + "Vérifiez l'alimentation (12 V stable sous charge, pas une batterie qui s'affaiblit) et la prise d'alimentation.";
+                      + "C'est exactement ce qui fait partir la monture n'importe où en pleine séance : l'ordre d'arrêt "
+                      + "part, la monture l'accepte sans erreur, mais l'axe ne s'immobilise pas. "
+                      + "Pistes, dans l'ordre : tension qui chute quand les moteurs tirent du courant, "
+                      + "puis firmware de la monture, puis liaison série.";
                     CouleurTestCharge = BrosseRouge;
                 } else if (r.PasBouge > 0) {
                     v = "⛔ La monture n'a pas obéi" + Environment.NewLine
-                      + r.PasBouge + " fois sur " + r.CyclesFaits + ", rien n'a bougé alors qu'un déplacement était commandé."
+                      + r.PasBouge + " fois sur " + r.Mesures + ", rien n'a bougé alors qu'un déplacement était commandé."
                       + Environment.NewLine + Environment.NewLine
-                      + "Regardez d'abord le mécanique : freins (clutches) desserrés, courroie détendue, vis de poulie. "
+                      + "Regardez d'abord la mécanique : freins (clutches) desserrés, courroie détendue, vis de poulie. "
                       + "Puis l'alimentation.";
                     CouleurTestCharge = BrosseRouge;
                 } else if (r.Deconnexions > 0 || r.Erreurs > 0) {
@@ -1403,20 +1417,32 @@ namespace ModeDebutant.AlignementPolaire {
                       + r.Deconnexions + " coupure(s) et " + r.Erreurs + " erreur(s) pendant le test."
                       + Environment.NewLine + Environment.NewLine
                       + "Les axes obéissent, mais la communication décroche. Pistes : câble USB, "
-                      + "Latency Timer du port série (16 ms par défaut, à passer à 1 ms), alimentation.";
+                      + "Latency Timer du port série, alimentation.";
                     CouleurTestCharge = BrosseOrange;
                 } else {
                     v = "✅ La monture tient la charge" + Environment.NewLine
-                      + r.CyclesFaits + " cycles : les deux axes ont bougé quand il le fallait, "
+                      + r.Mesures + " mesures : les deux axes ont bougé quand il le fallait, "
                       + "se sont arrêtés quand il le fallait, sans aucune coupure."
+                      + (r.PhotosPrises > 0 ? "  Et ce, avec la caméra qui tournait en même temps ("
+                            + r.PhotosPrises + " photos)." : "")
                       + Environment.NewLine + Environment.NewLine
-                      + "L'alimentation et la liaison ne sont pas en cause. Si vos séances échouent encore, "
-                      + "cherchez ailleurs (position de repos au démarrage, alignement, suivi).";
+                      + "L'alimentation et la liaison ne sont pas en cause dans ces conditions.";
                     CouleurTestCharge = BrosseVert;
                 }
 
-                if (r.Interrompu) { v += Environment.NewLine + Environment.NewLine + "(test interrompu avant la fin)"; }
-                if (!string.IsNullOrWhiteSpace(r.Detail)) { v += Environment.NewLine + Environment.NewLine + r.Detail.Trim(); }
+                v += Environment.NewLine + Environment.NewLine
+                   + "Dérive au repos (référence) : "
+                   + (r.DeriveReposDegParSec * 3600).ToString("0.0", CultureInfo.InvariantCulture) + "″/s";
+                if (r.Interrompu) { v += Environment.NewLine + "(test interrompu avant la fin)"; }
+
+                // Journal sur le Bureau, pour pouvoir l'envoyer et le relire
+                try {
+                    var chemin = Path.Combine(
+                        Environment.GetFolderPath(Environment.SpecialFolder.Desktop),
+                        "test-monture-" + DateTime.Now.ToString("yyyyMMdd-HHmmss") + ".txt");
+                    File.WriteAllLines(chemin, r.Journal);
+                    v += Environment.NewLine + "Journal : " + Path.GetFileName(chemin) + " (sur le Bureau)";
+                } catch { /* pas de journal : ce n'est pas bloquant */ }
 
                 TestChargeVerdict = v;
                 TestChargeVerdictVisible = true;

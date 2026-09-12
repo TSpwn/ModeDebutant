@@ -175,9 +175,15 @@
                             <TextBlock FontSize="11" Opacity="0.6" TextWrapping="Wrap" Margin="0,2,0,8"
                                        Text="Fait travailler les deux moteurs pendant une minute et vérifie trois choses : la monture obéit-elle, s'arrête-t-elle quand on lui dit, et reste-t-elle connectée ? Un axe qui ne s'arrête pas est le signe d'une alimentation qui faiblit sous charge. À faire au chaud, appareil photo retiré si possible — la monture revient à son point de départ." />
 
-                            <Button Command="{Binding TestChargeCommand}" Height="36" FontSize="13" FontWeight="Bold"
-                                    Content="🔋 Lancer le test de charge (environ 1 min 30)"
-                                    Visibility="{Binding TestChargePasEnCours, Converter={StaticResource BoolVersVisibilite}}" />
+                            <StackPanel Visibility="{Binding TestChargePasEnCours, Converter={StaticResource BoolVersVisibilite}}">
+                                <Button Command="{Binding TestChargeCommand}" Height="36" FontSize="13" FontWeight="Bold"
+                                        Content="🔋 Test normal (environ 3 min)" />
+                                <Button Command="{Binding TestChargeDurCommand}" Height="36" FontSize="13" FontWeight="Bold"
+                                        Margin="0,6,0,0"
+                                        Content="🔥 Test DUR — moteurs rapides + caméra (environ 8 min)" />
+                                <TextBlock FontSize="11" Opacity="0.6" TextWrapping="Wrap" Margin="0,6,0,0"
+                                           Text="Le test dur pousse les moteurs à 3°/s pendant 5 secondes d'affilée, pendant que la caméra prend des photos en continu. C'est ce qui reproduit les conditions d'un alignement polaire — le moment où les pannes arrivent vraiment." />
+                            </StackPanel>
 
                             <StackPanel Visibility="{Binding TestChargeEnCours, Converter={StaticResource BoolVersVisibilite}}">
                                 <TextBlock Text="{Binding TestChargeEtape}" FontSize="13" FontWeight="Bold"
