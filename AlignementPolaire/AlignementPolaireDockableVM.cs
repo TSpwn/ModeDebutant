@@ -9,6 +9,7 @@ using NINA.Profile;
 using NINA.Profile.Interfaces;
 using NINA.WPF.Base.ViewModel;
 using System;
+using System.Collections.ObjectModel;
 using System.ComponentModel.Composition;
 using System.Globalization;
 using System.IO;
@@ -119,6 +120,7 @@ namespace ModeDebutant.AlignementPolaire {
             TestChargeCommand = new CommandeSimple(() => _ = LancerTestCharge(TestCharge.Normal()));
             TestChargeDurCommand = new CommandeSimple(() => _ = LancerTestCharge(TestCharge.Dur()));
             VerifierSuiviCommand = new CommandeSimple(() => _ = LancerTestCharge(TestCharge.VerificationSuivi()));
+            VerificationGeneraleCommand = new CommandeSimple(() => _ = LancerVerificationGenerale());
             ArreterTestChargeCommand = new CommandeSimple(ArreterTestCharge);
             RafraichirMateriel();
             SurveillerMonture();
@@ -1487,6 +1489,231 @@ namespace ModeDebutant.AlignementPolaire {
                 arretTestCharge = null;
                 TestChargeEnCours = false;
                 TestChargeEtape = "";
+                NotifierToutChange();
+            }
+        }
+
+        // ------------------------------------------------------------------
+        // Vérification générale : « est-ce que je peux lancer ma séance ? »
+        // ------------------------------------------------------------------
+
+        public ICommand VerificationGeneraleCommand { get; }
+
+        public ObservableCollection<Controle> Controles { get; } = new ObservableCollection<Controle>();
+
+        public bool VerificationEnCours { get; private set; }
+        public bool VerificationPasEnCours => !VerificationEnCours;
+        public string VerificationEtape { get; private set; } = "";
+        public string VerificationBilan { get; private set; } = "";
+        public bool VerificationBilanVisible { get; private set; }
+        public Brush CouleurVerification { get; private set; } = BrosseGris;
+
+        /// <summary>
+        /// Passe en revue tout ce qui doit être vrai avant de lancer une série,
+        /// et le dit en clair. L'idée est de découvrir les problèmes ici, au
+        /// chaud et en une minute, plutôt qu'à 23 h après une heure de montage.
+        /// </summary>
+        private async Task LancerVerificationGenerale() {
+            if (VerificationEnCours || TestChargeEnCours) { return; }
+
+            VerificationEnCours = true;
+            VerificationBilanVisible = false;
+            Controles.Clear();
+            NotifierToutChange();
+
+            void Ajouter(string nom, NiveauControle niveau, string detail) {
+                Controles.Add(new Controle(nom, niveau, detail));
+                NotifierToutChange();
+            }
+
+            arretTestCharge = new CancellationTokenSource();
+            try {
+                var monture = telescopeMediator.GetInfo();
+                var camera = cameraMediator.GetInfo();
+
+                // ---- 1. La monture ----------------------------------------
+                VerificationEtape = "Monture…"; NotifierToutChange();
+                if (!monture.Connected) {
+                    Ajouter("Monture", NiveauControle.Probleme,
+                        "Non connectée. Onglet Équipement > Monture.");
+                } else if (monture.AtPark) {
+                    Ajouter("Monture", NiveauControle.Probleme,
+                        "Connectée mais PARQUÉE — le suivi ne peut pas s'activer. Cliquez sur Unpark.");
+                } else {
+                    Ajouter("Monture", NiveauControle.Ok, "Connectée et déparquée.");
+                }
+
+                // ---- 2. La caméra -----------------------------------------
+                VerificationEtape = "Caméra…"; NotifierToutChange();
+                if (!camera.Connected) {
+                    Ajouter("Caméra", NiveauControle.Probleme,
+                        "Non connectée. Onglet Équipement > Caméra.");
+                } else {
+                    Ajouter("Caméra", NiveauControle.Ok, camera.Name);
+                }
+
+                // ---- 3. Le refroidissement --------------------------------
+                // On ne réclame PAS que la consigne soit atteinte : la descente
+                // prend plusieurs minutes et ce n'est pas bloquant. Ce qui
+                // compte, c'est que le refroidissement soit en marche.
+                if (camera.Connected && camera.CanSetTemperature) {
+                    string ou = camera.Temperature.ToString("0.0", CultureInfo.InvariantCulture) + " °C"
+                        + " (objectif " + camera.TemperatureSetPoint.ToString("0", CultureInfo.InvariantCulture) + " °C)";
+                    if (camera.CoolerOn) {
+                        Ajouter("Refroidissement", NiveauControle.Ok, "En marche — " + ou);
+                    } else {
+                        Ajouter("Refroidissement", NiveauControle.Attention, "Éteint — " + ou);
+                    }
+                }
+
+                // ---- 4. Le lieu -------------------------------------------
+                double lat = profileService.ActiveProfile.AstrometrySettings.Latitude;
+                double lon = profileService.ActiveProfile.AstrometrySettings.Longitude;
+                if (Math.Abs(lat) < 0.01 && Math.Abs(lon) < 0.01) {
+                    Ajouter("Lieu d'observation", NiveauControle.Probleme,
+                        "Latitude et longitude à zéro : la monture pointera n'importe où.");
+                } else {
+                    Ajouter("Lieu d'observation", NiveauControle.Ok,
+                        lat.ToString("0.00", CultureInfo.InvariantCulture) + " / "
+                        + lon.ToString("0.00", CultureInfo.InvariantCulture));
+                }
+
+                // ---- 5. L'optique -----------------------------------------
+                double focale = profileService.ActiveProfile.TelescopeSettings.FocalLength;
+                double pixel = profileService.ActiveProfile.CameraSettings.PixelSize;
+                if (double.IsNaN(focale) || focale <= 0 || double.IsNaN(pixel) || pixel <= 0) {
+                    Ajouter("Optique", NiveauControle.Probleme,
+                        "Focale ou taille de pixel manquante : le plate solve ne peut pas fonctionner.");
+                } else {
+                    double echelle = 206.265 * pixel / focale;
+                    Ajouter("Optique", NiveauControle.Ok,
+                        focale.ToString("0", CultureInfo.InvariantCulture) + " mm · "
+                        + pixel.ToString("0.00", CultureInfo.InvariantCulture) + " µm · "
+                        + echelle.ToString("0.00", CultureInfo.InvariantCulture) + "″/pixel");
+                }
+
+                // ---- 6. ASTAP ---------------------------------------------
+                string astap = profileService.ActiveProfile.PlateSolveSettings.ASTAPLocation;
+                if (string.IsNullOrWhiteSpace(astap) || !File.Exists(astap)) {
+                    Ajouter("ASTAP", NiveauControle.Probleme,
+                        "Introuvable. Options > Plate Solving > chemin de astap.exe.");
+                } else {
+                    Ajouter("ASTAP", NiveauControle.Ok, Path.GetFileName(astap) + " trouvé.");
+                }
+
+                // ---- 7. L'espace disque -----------------------------------
+                try {
+                    string dossier = profileService.ActiveProfile.ImageFileSettings.FilePath;
+                    if (!string.IsNullOrWhiteSpace(dossier)) {
+                        var disque = new DriveInfo(Path.GetPathRoot(Path.GetFullPath(dossier)));
+                        double go = disque.AvailableFreeSpace / 1073741824.0;
+                        Ajouter("Espace disque",
+                            go < 5 ? NiveauControle.Probleme : go < 20 ? NiveauControle.Attention : NiveauControle.Ok,
+                            go.ToString("0", CultureInfo.InvariantCulture) + " Go libres dans " + dossier);
+                    }
+                } catch { /* chemin exotique : on n'en fait pas un drame */ }
+
+                // ---- 8. Le suivi (mesuré) ---------------------------------
+                if (monture.Connected && !monture.AtPark) {
+                    VerificationEtape = "Mesure du suivi (20 s)…"; NotifierToutChange();
+                    var test = new TestCharge(telescopeMediator);
+                    var mesure = await test.Lancer(TestCharge.VerificationSuivi(), e => { }, arretTestCharge.Token);
+                    double dsec = mesure.DeriveReposDegParSec * 3600;
+                    if (dsec < 3.0) {
+                        Ajouter("Suivi sidéral", NiveauControle.Ok,
+                            "Actif — dérive " + dsec.ToString("0.0", CultureInfo.InvariantCulture) + "″/s");
+                    } else if (dsec > 10.0) {
+                        Ajouter("Suivi sidéral", NiveauControle.Probleme,
+                            "INACTIF — dérive " + dsec.ToString("0.0", CultureInfo.InvariantCulture)
+                            + "″/s, soit la vitesse du ciel. Vos étoiles seront des traits.");
+                    } else {
+                        Ajouter("Suivi sidéral", NiveauControle.Attention,
+                            "Vitesse inhabituelle — " + dsec.ToString("0.0", CultureInfo.InvariantCulture)
+                            + "″/s. Mode lunaire ou solaire au lieu de sidéral ?");
+                    }
+                }
+
+                // ---- 9. La photo d'essai ----------------------------------
+                // Une seule pose prouve d'un coup : la caméra répond, la mise au
+                // point est bonne, et les étoiles sont des POINTS (donc le suivi
+                // fonctionne réellement, pas seulement en théorie).
+                if (camera.Connected) {
+                    VerificationEtape = "Photo d'essai…"; NotifierToutChange();
+                    try {
+                        double pose = VersDouble(PoseReglageTexte) is double pp && pp > 0 ? pp : 3.0;
+                        var capture = new CaptureSequence(pose, CaptureSequence.ImageTypes.SNAPSHOT,
+                            null, new NINA.Core.Model.Equipment.BinningMode(1, 1), 1);
+                        var rendu = await imagingMediator.CaptureAndPrepareImage(capture,
+                            new PrepareImageParameters(true, false), arretTestCharge.Token, null);
+
+                        var analyse = rendu?.RawImageData?.StarDetectionAnalysis;
+                        if (analyse == null || analyse.DetectedStars <= 0) {
+                            var bis = await rendu.DetectStars(false, StarSensitivityEnum.Normal, NoiseReductionEnum.None);
+                            analyse = bis?.RawImageData?.StarDetectionAnalysis;
+                        }
+                        int etoiles = analyse?.DetectedStars ?? 0;
+                        double hfr = analyse?.HFR ?? double.NaN;
+
+                        if (etoiles >= 20 && hfr > 0) {
+                            Ajouter("Photo d'essai", NiveauControle.Ok,
+                                etoiles + " étoiles détectées, HFR " + hfr.ToString("0.00", CultureInfo.InvariantCulture)
+                                + " — mise au point et suivi confirmés sur le ciel.");
+                        } else if (etoiles > 0) {
+                            Ajouter("Photo d'essai", NiveauControle.Attention,
+                                "Seulement " + etoiles + " étoile(s) détectée(s). Mise au point à revoir, "
+                                + "pose trop courte, ou ciel voilé.");
+                        } else {
+                            Ajouter("Photo d'essai", NiveauControle.NonTeste,
+                                "Aucune étoile — normal en plein jour ou objectif bouché. "
+                                + "À refaire sous le ciel pour que ce contrôle ait un sens.");
+                        }
+                    } catch (OperationCanceledException) {
+                        throw;
+                    } catch (Exception ex) {
+                        Ajouter("Photo d'essai", NiveauControle.Probleme, ex.Message);
+                    }
+                }
+
+                // ---- 10. L'alignement polaire de la séance -----------------
+                if (!string.IsNullOrWhiteSpace(ErreurTotaleTexte) && ErreurTotaleTexte != "—") {
+                    Ajouter("Alignement polaire", NiveauControle.Ok,
+                        "Dernière mesure de la séance : " + ErreurTotaleTexte);
+                } else {
+                    Ajouter("Alignement polaire", NiveauControle.Attention,
+                        "Aucun alignement mesuré depuis le démarrage de N.I.N.A.");
+                }
+
+                // ---- Le bilan ---------------------------------------------
+                int problemes = 0, attentions = 0;
+                foreach (var c in Controles) {
+                    if (c.Niveau == NiveauControle.Probleme) { problemes++; }
+                    if (c.Niveau == NiveauControle.Attention) { attentions++; }
+                }
+
+                if (problemes > 0) {
+                    VerificationBilan = "⛔ " + problemes + " point(s) bloquant(s) — corrigez avant de lancer la séance";
+                    CouleurVerification = BrosseRouge;
+                } else if (attentions > 0) {
+                    VerificationBilan = "⚠ Jouable, avec " + attentions + " point(s) d'attention";
+                    CouleurVerification = BrosseOrange;
+                } else {
+                    VerificationBilan = "✅ TOUT EST PRÊT — vous pouvez lancer votre séance";
+                    CouleurVerification = BrosseVert;
+                }
+                VerificationBilanVisible = true;
+            } catch (OperationCanceledException) {
+                VerificationBilan = "Vérification interrompue.";
+                CouleurVerification = BrosseGris;
+                VerificationBilanVisible = true;
+            } catch (Exception ex) {
+                VerificationBilan = "⚠ La vérification s'est interrompue : " + ex.Message;
+                CouleurVerification = BrosseOrange;
+                VerificationBilanVisible = true;
+            } finally {
+                arretTestCharge?.Dispose();
+                arretTestCharge = null;
+                VerificationEnCours = false;
+                VerificationEtape = "";
                 NotifierToutChange();
             }
         }

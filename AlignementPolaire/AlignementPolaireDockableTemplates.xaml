@@ -348,6 +348,47 @@
                     <TextBlock Text="{Binding Avertissement}" Foreground="#FFB74D" FontSize="13" FontWeight="Bold"
                                TextWrapping="Wrap" Margin="0,12,0,0" />
 
+                    <!-- ── Vérification générale : le go/no-go d'avant-séance ── -->
+                    <Border Background="#22888888" CornerRadius="8" Padding="12" Margin="0,14,0,0">
+                        <StackPanel>
+                            <Button Command="{Binding VerificationGeneraleCommand}" Height="44" FontSize="15" FontWeight="Bold"
+                                    Content="🔎  VÉRIFICATION GÉNÉRALE"
+                                    Visibility="{Binding VerificationPasEnCours, Converter={StaticResource BoolVersVisibilite}}" />
+                            <TextBlock FontSize="11" Opacity="0.6" TextWrapping="Wrap" Margin="0,6,0,0"
+                                       Visibility="{Binding VerificationPasEnCours, Converter={StaticResource BoolVersVisibilite}}"
+                                       Text="Passe en revue tout ce qui doit être vrai avant de lancer une série : matériel, lieu, optique, ASTAP, disque, suivi réellement actif, et une photo d'essai. Environ 1 minute." />
+
+                            <TextBlock Text="{Binding VerificationEtape}" FontSize="13" FontWeight="Bold"
+                                       HorizontalAlignment="Center" Margin="0,6"
+                                       Visibility="{Binding VerificationEnCours, Converter={StaticResource BoolVersVisibilite}}" />
+
+                            <ItemsControl ItemsSource="{Binding Controles}" Margin="0,8,0,0">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <DockPanel Margin="0,3">
+                                            <TextBlock Text="{Binding Icone}" DockPanel.Dock="Left"
+                                                       FontSize="14" Margin="0,0,8,0" VerticalAlignment="Top" />
+                                            <StackPanel>
+                                                <TextBlock Text="{Binding Nom}" FontWeight="Bold" FontSize="13"
+                                                           Foreground="{Binding Couleur}" />
+                                                <TextBlock Text="{Binding Detail}" FontSize="11" Opacity="0.75"
+                                                           TextWrapping="Wrap" />
+                                            </StackPanel>
+                                        </DockPanel>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+
+                            <Border CornerRadius="6" Padding="10" Margin="0,10,0,0"
+                                    Background="{Binding CouleurVerification}"
+                                    Visibility="{Binding VerificationBilanVisible, Converter={StaticResource BoolVersVisibilite}}">
+                                <TextBlock Text="{Binding VerificationBilan}" Foreground="White"
+                                           FontSize="14" FontWeight="Bold" TextWrapping="Wrap"
+                                           TextAlignment="Center" />
+                            </Border>
+                        </StackPanel>
+                    </Border>
+
                     <Button Command="{Binding DemarrerCommand}" Height="64" Margin="0,16,0,0"
                             Background="#2E7D32" Foreground="White" FontSize="20" FontWeight="Bold"
                             Content="▶  DÉMARRER L'ALIGNEMENT" />
