@@ -207,6 +207,11 @@ namespace ModeDebutant.AlignementPolaire {
                 return r;
             }
 
+            // On memorise l'etat du suivi pour le rendre tel qu'on l'a trouve.
+            // Voir la note sur MoveAxis(0) dans le bloc finally.
+            bool suiviAuDepart = false;
+            try { suiviAuDepart = telescopeMediator.GetInfo().TrackingEnabled; } catch { }
+
             // La caméra tourne en tâche de fond pendant tout le test
             CancellationTokenSource arretCamera = null;
             Task boucleCamera = null;
@@ -281,9 +286,28 @@ namespace ModeDebutant.AlignementPolaire {
                 r.Erreurs++;
                 r.Noter("EXCEPTION : " + ex.Message);
             } finally {
-                // Quoi qu'il arrive, aucun axe ne reste en mouvement
-                try { Bouger(0, 0); } catch { }
-                try { Bouger(1, 0); } catch { }
+                // ⚠ MoveAxis(axe, 0) n'est PAS anodin sur cette monture : il
+                // arrete l'axe pour de bon, SUIVI SIDERAL COMPRIS. Constate le
+                // 22 sept 2026 — la « verification du suivi » coupait le suivi
+                // qu'elle venait de mesurer, et l'utilisateur se retrouvait a
+                // l'arret sans comprendre pourquoi.
+                //
+                // Deux regles depuis :
+                //   1. on n'arrete que les axes qu'on a soi-meme mis en marche
+                //      (en mode verification du suivi, aucun mouvement n'a ete
+                //      commande : il n'y a rien a arreter) ;
+                //   2. apres un arret, on remet le suivi dans l'etat ou on
+                //      l'avait trouve.
+                if (!o.SuiviSeulement) {
+                    try { Bouger(0, 0); } catch { }
+                    try { Bouger(1, 0); } catch { }
+                    try {
+                        telescopeMediator.SetTrackingEnabled(suiviAuDepart);
+                        r.Noter("Suivi remis dans son etat initial : " + suiviAuDepart);
+                    } catch (Exception ex) {
+                        r.Noter("Impossible de remettre le suivi : " + ex.Message);
+                    }
+                }
 
                 if (arretCamera != null) {
                     arretCamera.Cancel();
