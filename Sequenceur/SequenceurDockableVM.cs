@@ -3,6 +3,7 @@ using NINA.Astrometry.Interfaces;
 using NINA.Core.Enum;
 using NINA.Core.Model.Equipment;
 using NINA.Core.Utility;
+using NINA.Core.Utility.Notification;
 using NINA.Core.Utility.WindowService;
 using NINA.Equipment.Interfaces;
 using NINA.Equipment.Interfaces.Mediator;
@@ -22,6 +23,7 @@ using NINA.Sequencer.SequenceItem.Platesolving;
 using NINA.Sequencer.SequenceItem.Telescope;
 using NINA.Sequencer.Trigger.MeridianFlip;
 using NINA.Sequencer.Trigger.Platesolving;
+using NINA.Sequencer.Utility;
 using NINA.WPF.Base.Interfaces;
 using NINA.WPF.Base.Interfaces.Mediator;
 using NINA.WPF.Base.Interfaces.ViewModel;
@@ -107,6 +109,16 @@ namespace ModeDebutant.Sequenceur {
         private bool darksEnCours; // true = la série actuelle, ce sont les darks
         private int nbLightsFaits; // photos "utiles" prises avant les darks
         private DateTime serieDebut; // pour la durée totale au bilan
+
+        // Le centrage de la série : gardé pour savoir, à la fin, si c'est
+        // LUI qui a arrêté la série (null = pas de centrage dans la série)
+        private Center centrageSerie;
+
+        // Refroidissement + darks : on ne réchauffe la caméra qu'APRÈS les
+        // darks (ils doivent être pris à la même température que les photos).
+        // true = un réchauffement est dû à la fin de la séance.
+        private bool rechauffementDiffere;
+        private CancellationTokenSource rechauffementArret;
 
         // Le carnet de notes de la nuit : une ligne par photo analysée
         // (étoiles, netteté, verdict) — la matière du bilan de fin de nuit
@@ -545,10 +557,14 @@ namespace ModeDebutant.Sequenceur {
                 cibleChoisie = value;
                 RaisePropertyChanged();
                 RaisePropertyChanged(nameof(CibleEstChoisie));
+                RaisePropertyChanged(nameof(PeutPointer));
             }
         }
 
         public bool CibleEstChoisie => CibleChoisie != null;
+
+        /// <summary>Bouton « Pointer » actif : une cible, et aucun pointage déjà en cours.</summary>
+        public bool PeutPointer => CibleChoisie != null && !pointageEnCours;
 
         /// <summary>Petit message sous la zone de recherche (résultat, pointage...).</summary>
         public string MessageCible { get; private set; } = "";
@@ -805,8 +821,12 @@ namespace ModeDebutant.Sequenceur {
 
         public ICommand PointerCommand { get; }
 
+        // Un double-clic lançait deux centrages en parallèle, qui se
+        // disputaient la caméra et la monture
+        private bool pointageEnCours;
+
         private async Task Pointer() {
-            if (CibleChoisie == null) { return; }
+            if (CibleChoisie == null || pointageEnCours) { return; }
 
             var monture = telescopeMediator.GetInfo();
             if (!monture.Connected) {
@@ -839,6 +859,8 @@ namespace ModeDebutant.Sequenceur {
                 : "🔭 Pointage en cours vers « " + CibleChoisie.Nom + " »… (le télescope se déplace)";
             RaisePropertyChanged(nameof(MessageCible));
 
+            pointageEnCours = true;
+            RaisePropertyChanged(nameof(PeutPointer));
             try {
                 if (centrageDispo) {
                     // « Center » lit sa cible dans le conteneur parent :
@@ -864,7 +886,13 @@ namespace ModeDebutant.Sequenceur {
                         await centrage.Run(new Progress<NINA.Core.Model.ApplicationStatus>(), arret.Token);
                     }
 
-                    MessageCible = "✅ « " + CibleChoisie.Nom + " » est centré, et c'est VÉRIFIÉ : le ciel a été photographié et reconnu. Vous pouvez lancer la série.";
+                    // ⚠ Run() ne lève PAS d'exception quand le centrage échoue :
+                    // par défaut N.I.N.A. note l'échec dans Status et continue
+                    // (ErrorBehavior = ContinueOnError). Sans ce test, on
+                    // affichait « VÉRIFIÉ » après un centrage raté.
+                    MessageCible = centrage.Status == SequenceEntityStatus.FINISHED
+                        ? "✅ « " + CibleChoisie.Nom + " » est centré, et c'est VÉRIFIÉ : le ciel a été photographié et reconnu. Vous pouvez lancer la série."
+                        : "❌ Le centrage a ÉCHOUÉ : le télescope n'est PAS vérifié sur « " + CibleChoisie.Nom + " ». Causes habituelles : étoiles filées (suivi arrêté), nuages, buée ou mise au point. Le détail est dans le journal de N.I.N.A.";
                 } else {
                     var reussi = await telescopeMediator.SlewToCoordinatesAsync(CibleChoisie.Coordonnees, CancellationToken.None);
                     MessageCible = reussi
@@ -876,6 +904,9 @@ namespace ModeDebutant.Sequenceur {
             } catch (Exception ex) {
                 MessageCible = "⚠ Le pointage a échoué : " + ex.Message
                     + (centrageDispo ? " — si c'est la reconnaissance du ciel qui échoue, vérifiez que les étoiles sont des points et non des traits." : "");
+            } finally {
+                pointageEnCours = false;
+                RaisePropertyChanged(nameof(PeutPointer));
             }
             RaisePropertyChanged(nameof(MessageCible));
         }
@@ -1174,6 +1205,10 @@ namespace ModeDebutant.Sequenceur {
             Avertissement = "";
             var notes = "";
 
+            // Un réchauffement de la séance précédente tourne peut-être
+            // encore : il ne doit pas se battre avec le refroidissement
+            try { rechauffementArret?.Cancel(); } catch { }
+
             // ---- La séquence, telle qu'on l'aurait construite à la main ----
 
             // Le squelette du séquenceur avancé : zone de début, zone des
@@ -1242,10 +1277,18 @@ namespace ModeDebutant.Sequenceur {
             // répété jusqu'à la tolérance du profil). Elle lit la cible du
             // conteneur parent. Seulement si une cible est choisie ET que la
             // monture obéit — sinon GoTo simple, comme avant.
+            centrageSerie = null;
             if (CentrageActif && CibleChoisie != null && monture.Connected) {
-                conteneurCible.Add(new Center(profileService, telescopeMediator, imagingMediator,
+                // Par défaut, N.I.N.A. passe à la suite quand une instruction
+                // échoue : un centrage raté = toute la nuit photographiée au
+                // mauvais endroit. On saute plutôt directement aux instructions
+                // de fin (réchauffer, parquer) et TerminerSerie prévient.
+                centrageSerie = new Center(profileService, telescopeMediator, imagingMediator,
                     filterWheelMediator, guiderMediator, domeMediator, domeFollower,
-                    plateSolverFactory, windowServiceFactory));
+                    plateSolverFactory, windowServiceFactory) {
+                    ErrorBehavior = InstructionErrorBehavior.SkipToSequenceEndInstructions
+                };
+                conteneurCible.Add(centrageSerie);
                 notes += "Centrage précis au départ · ";
             }
 
@@ -1344,9 +1387,18 @@ namespace ModeDebutant.Sequenceur {
 
             // ---- Zone de fin : ce qu'on fait APRÈS la dernière photo ----
 
-            // Réchauffer doucement : éviter le choc thermique et la condensation
+            // Réchauffer doucement : éviter le choc thermique et la condensation.
+            // Sauf si des darks suivent : WarmCamera coupe le refroidissement,
+            // et des darks pris à température ambiante ne correspondraient plus
+            // aux photos. Le réchauffement se fait alors en toute fin de séance
+            // (RechaufferSiDiffere).
+            rechauffementDiffere = false;
             if (RefroidirActif && camera.Connected) {
-                zoneFin.Add(new WarmCamera(cameraMediator) { Duration = 5 });
+                if (DarksActif) {
+                    rechauffementDiffere = true;
+                } else {
+                    zoneFin.Add(new WarmCamera(cameraMediator) { Duration = 5 });
+                }
             }
 
             // Parquer la monture : elle se remet en position repos, à l'abri
@@ -1420,9 +1472,22 @@ namespace ModeDebutant.Sequenceur {
             }
 
             phase = Phase.Terminee;
+            RechaufferSiDiffere();
             string quoi = darksEnCours ? "dark(s)" : "photo(s)";
 
-            if (erreur != null) {
+            // Le centrage de départ a échoué : N.I.N.A. a sauté aux
+            // instructions de fin (voir Demarrer). À dire clairement — ce
+            // n'est ni un arrêt demandé, ni une série « presque » réussie.
+            bool centrageRate = !darksEnCours && centrageSerie != null
+                && centrageSerie.Status == SequenceEntityStatus.FAILED;
+
+            if (centrageRate) {
+                TitreBilan = "❌ Série arrêtée : le centrage a échoué";
+                ResumeBilan = "Le télescope n'a pas pu être calé sur « " + nomCibleEnCours + " » (reconnaissance du ciel impossible). "
+                    + "Plutôt que de photographier au mauvais endroit toute la nuit, la série a été arrêtée.\n"
+                    + "Causes habituelles : étoiles filées (suivi arrêté), nuages, buée, mise au point.";
+                CouleurBilan = BrosseRouge;
+            } else if (erreur != null) {
                 TitreBilan = "⚠ La série s'est arrêtée sur une erreur";
                 ResumeBilan = faites + " " + quoi + " sur " + nbPhotosTotal + ".\nDétail technique : " + erreur.Message;
                 CouleurBilan = BrosseOrange;
@@ -1456,7 +1521,10 @@ namespace ModeDebutant.Sequenceur {
             NotifierToutChange();
 
             // Le téléphone est prévenu du dénouement (urgent si erreur)
-            if (erreur != null) {
+            if (centrageRate) {
+                EnvoyerAlerte("Serie arretee - centrage rate",
+                    "❌ Centrage impossible sur « " + nomCibleEnCours + " » : série arrêtée plutôt que de photographier au mauvais endroit. Suivi ? nuages ? buée ?", true);
+            } else if (erreur != null) {
                 EnvoyerAlerte("Serie arretee sur une erreur",
                     "⚠ " + faites + " " + quoi + " sur " + nbPhotosTotal + ". Erreur : " + erreur.Message, true);
             } else if (arretDemande || faites < nbPhotosTotal) {
@@ -1503,6 +1571,17 @@ namespace ModeDebutant.Sequenceur {
             racine.Add(zoneFin);
             racine.SequenceTitle = "Darks (Mode Débutant)";
 
+            // Télescope bouché : le suivi ne sert plus à rien, et plus rien ne
+            // surveille le méridien pendant les darks (pas de retournement ici).
+            // On l'arrête pour que la monture ne tourne pas, sans surveillance,
+            // vers le trépied. La prochaine série et le bouton « Pointer »
+            // remettent eux-mêmes le sidéral.
+            var montureDarks = telescopeMediator.GetInfo();
+            bool suiviCoupe = montureDarks.Connected && !montureDarks.AtPark;
+            if (suiviCoupe) {
+                zoneDebut.Add(new SetTracking(telescopeMediator) { TrackingMode = TrackingMode.Stopped });
+            }
+
             var conteneurCible = new DeepSkyObjectContainer(profileService, nighttimeCalculator, framingAssistantVM,
                 applicationMediator, planetariumFactory, cameraMediator, filterWheelMediator);
             conteneurCible.Name = "Darks";
@@ -1534,7 +1613,8 @@ namespace ModeDebutant.Sequenceur {
             DerniereImage = null;   // place aux images noires
             NbEtoilesTexte = "";
             VerdictPhoto = "";
-            NotesSerie = "Télescope couvert · " + nbDarks + " darks de " + poseSecondesEnCours.ToString("0.#") + " s";
+            NotesSerie = "Télescope couvert · " + nbDarks + " darks de " + poseSecondesEnCours.ToString("0.#") + " s"
+                + (suiviCoupe ? " · suivi de la monture arrêté (inutile, télescope bouché)" : "");
             phase = Phase.EnCours;
             NotifierToutChange();
 
@@ -1556,6 +1636,7 @@ namespace ModeDebutant.Sequenceur {
         private void PasserDarks() {
             if (phase != Phase.AttenteDarks) { return; }
             phase = Phase.Terminee;
+            RechaufferSiDiffere();
             TitreBilan = "✅ Série terminée !";
             ResumeBilan = nbLightsFaits + " photos de " + poseSecondesEnCours.ToString("0.#") + " s sont dans la boîte (darks sautés). Bravo !";
             CouleurBilan = BrosseVert;
@@ -1565,6 +1646,24 @@ namespace ModeDebutant.Sequenceur {
             }
             GenererBilanNuit(nbLightsFaits, 0);
             NotifierToutChange();
+        }
+
+        /// <summary>
+        /// Le réchauffement mis de côté pour les darks (voir Demarrer), fait
+        /// en toute fin de séance — darks faits, sautés, ou série interrompue.
+        /// Même instruction que la zone de fin d'une série sans darks.
+        /// </summary>
+        private async void RechaufferSiDiffere() {
+            if (!rechauffementDiffere) { return; }
+            rechauffementDiffere = false;
+            try {
+                if (!cameraMediator.GetInfo().Connected) { return; }
+                rechauffementArret = new CancellationTokenSource();
+                await new WarmCamera(cameraMediator) { Duration = 5 }
+                    .Run(new Progress<NINA.Core.Model.ApplicationStatus>(), rechauffementArret.Token);
+            } catch {
+                // async void : rien ne doit remonter jusqu'à N.I.N.A.
+            }
         }
 
         // ------------------------------------------------------------------
@@ -1852,6 +1951,14 @@ namespace ModeDebutant.Sequenceur {
             var rendu = e?.RenderedImage;
             if (rendu == null) { return; }
 
+            // Les photos de centrage (Center, recentrage sur dérive, retournement
+            // au méridien) passent AUSSI par ici, en type SNAPSHOT : 5 s de pose,
+            // donc bien moins d'étoiles. Jugées comme des photos de la série,
+            // elles déclenchaient « nuages ou buée ? » sur le téléphone en
+            // pleine nuit et faussaient le bilan. On ne garde que les vraies.
+            var typeImage = rendu.RawImageData?.MetaData?.Image?.ImageType;
+            if (typeImage != null && typeImage != (darksEnCours ? "DARK" : "LIGHT")) { return; }
+
             // ⚠ L'événement transmet l'image AVANT étirement : affichée telle
             // quelle, elle est presque noire. Voir AideImage pour le détail —
             // c'est un comportement de N.I.N.A., pas un réglage.
@@ -2129,7 +2236,14 @@ namespace ModeDebutant.Sequenceur {
 
         public bool CanExecute(object parameter) => true;
 
-        public void Execute(object parameter) => action();
+        public void Execute(object parameter) {
+            try {
+                action();
+            } catch (Exception ex) {
+                Logger.Error(ex);
+                Notification.ShowError("Mode Débutant : " + ex.Message);
+            }
+        }
     }
 
     /// <summary>Commande WPF minimale pour une action qui prend du temps
@@ -2145,6 +2259,16 @@ namespace ModeDebutant.Sequenceur {
 
         public bool CanExecute(object parameter) => true;
 
-        public async void Execute(object parameter) => await action();
+        // async void : une exception qui s'échappe d'ici fait tomber N.I.N.A.
+        // tout entier (en pleine préparation de série, par exemple). On la
+        // note dans le journal et on l'affiche, au lieu de planter.
+        public async void Execute(object parameter) {
+            try {
+                await action();
+            } catch (Exception ex) {
+                Logger.Error(ex);
+                Notification.ShowError("Mode Débutant : " + ex.Message);
+            }
+        }
     }
 }
