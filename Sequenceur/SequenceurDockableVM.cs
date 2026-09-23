@@ -483,7 +483,9 @@ namespace ModeDebutant.Sequenceur {
         /// <summary>Envoie une alerte si l'interrupteur est activé (échec silencieux).</summary>
         private async void EnvoyerAlerte(string titre, string texte, bool urgente = false) {
             if (!AlerteTelActive) { return; }
-            await EnvoyerVersNtfy(titre, texte, urgente);
+            // async void : sans ce filet, une coupure réseau (fréquente sur un
+            // site d'observation) remonterait jusqu'à N.I.N.A. et le ferait tomber.
+            try { await EnvoyerVersNtfy(titre, texte, urgente); } catch { }
         }
 
         /// <summary>
@@ -847,6 +849,10 @@ namespace ModeDebutant.Sequenceur {
                     conteneur.Target.TargetName = CibleChoisie.Nom;
                     conteneur.Target.InputCoordinates.Coordinates = CibleChoisie.Coordonnees;
 
+                    // Le centrage photographie le ciel : sans suivi les étoiles
+                    // filent et la reconnaissance échoue. On force le sidéral.
+                    try { telescopeMediator.SetTrackingMode(TrackingMode.Sidereal); } catch { }
+
                     var centrage = new Center(profileService, telescopeMediator, imagingMediator,
                         filterWheelMediator, guiderMediator, domeMediator, domeFollower,
                         plateSolverFactory, windowServiceFactory);
@@ -1198,6 +1204,10 @@ namespace ModeDebutant.Sequenceur {
             //    le reste échoue. Sans effet si elle ne l'est pas.
             if (monture.Connected) {
                 zoneDebut.Add(new UnparkScope(telescopeMediator));
+                // Puis FORCER le sidéral : un TPPA lancé juste avant l'a très
+                // probablement coupé (« Stop tracking when done »). Sans suivi,
+                // étoiles filées, et le centrage qui suit échoue.
+                zoneDebut.Add(new SetTracking(telescopeMediator) { TrackingMode = TrackingMode.Sidereal });
             }
 
             // 3. Refroidir, en descendant progressivement (SVBONY recommande

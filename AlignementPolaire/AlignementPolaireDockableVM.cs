@@ -1,5 +1,6 @@
 using NINA.Core.Enum;
 using NINA.Core.Utility;
+using NINA.Equipment.Interfaces;
 using NINA.Equipment.Interfaces.Mediator;
 using NINA.Equipment.Model;
 using NINA.Equipment.Interfaces.ViewModel;
@@ -1027,6 +1028,12 @@ namespace ModeDebutant.AlignementPolaire {
             // Terminé = précision visée atteinte (ou mieux que « Parfait »)
             bool termine = total < SeuilParfait || total <= ToleranceArcmin;
 
+            // Objectif atteint : TPPA va s'arrêter tout seul… et couper le suivi.
+            if (termine && !suiviRemisCetteFois) {
+                suiviRemisCetteFois = true;
+                _ = ReforcerSuiviSideral("objectif atteint");
+            }
+
             // Les DEUX axes restent lisibles en permanence : on veut voir les
             // deux chiffres et les deux consignes, toujours. Un seul est mis en
             // avant comme « à corriger en premier » (celui dont l'erreur
@@ -1140,7 +1147,9 @@ namespace ModeDebutant.AlignementPolaire {
         /// dessous, TPPA considère l'alignement terminé et s'arrête seul.
         /// </summary>
         public double ToleranceArcmin {
-            get => reglages.GetValueDouble(nameof(ToleranceArcmin), 1.0);
+            // 20′ par défaut : à courte focale, c'est invisible sur les poses
+            // (voir MettreAJourDerive). 1′ faisait perdre 30 min par séance.
+            get => reglages.GetValueDouble(nameof(ToleranceArcmin), 20.0);
             set { reglages.SetValueDouble(nameof(ToleranceArcmin), value); RaisePropertyChanged(); }
         }
 
@@ -1261,6 +1270,8 @@ namespace ModeDebutant.AlignementPolaire {
             DetailTechnique = "";
             tppaADonneSigneDeVie = false;
             echecsConsecutifs = 0;
+            suiviRemisCetteFois = false;
+            SuiviRemisTexte = "";
             demarreLe = DateTime.UtcNow;
             phase = Phase.Mesure;
             NotifierToutChange();
@@ -1270,6 +1281,7 @@ namespace ModeDebutant.AlignementPolaire {
             // ont été remplis (null = TPPA garde son réglage habituel)
             var contenu = new ContenuDemarrage {
                 ManualMode = !MontureGoto,
+                StopTrackingWhenDone = false,
                 StartFromCurrentPosition = DemarrerSurPlace,
                 AlignmentTolerance = ToleranceArcmin,
                 ExposureTime = VersDouble(PoseTexte),
@@ -1291,7 +1303,53 @@ namespace ModeDebutant.AlignementPolaire {
             Avertissement = "";
             DetailTechnique = "";
             NotifierToutChange();
-            await messageBroker.Publish(new MessageArreterAlignement());
+            try {
+                await messageBroker.Publish(new MessageArreterAlignement());
+            } catch (Exception ex) {
+                // async void : une exception non rattrapée ici ferait tomber N.I.N.A.
+                Avertissement = "⚠ Impossible de prévenir TPPA : " + ex.Message;
+                NotifierToutChange();
+            }
+            // TPPA coupe le suivi quand il s'arrête : on repasse derrière lui
+            if (!suiviRemisCetteFois) {
+                suiviRemisCetteFois = true;
+                _ = ReforcerSuiviSideral("fin de l'alignement");
+            }
+        }
+
+        // ------------------------------------------------------------------
+        // Filet de sécurité : remettre le suivi après TPPA
+        // ------------------------------------------------------------------
+
+        private bool suiviRemisCetteFois;
+
+        /// <summary>Confirmation affichée quand le suivi a été remis (vide = rien à dire).</summary>
+        public string SuiviRemisTexte { get; private set; } = "";
+
+        /// <summary>
+        /// TPPA a une option « Stop tracking when done », activée par défaut,
+        /// qui coupe le suivi à la fin de l'alignement. Invisible sur le
+        /// moment — près du pôle une monture arrêtée ne dérive presque pas —
+        /// elle ruinait tout le reste de la nuit dès le premier pointage.
+        ///
+        /// On demande à TPPA de ne pas le faire, mais on repasse quand même
+        /// derrière lui : après un court délai (le temps qu'il termine son
+        /// propre ménage), on remet le sidéral. Si c'était déjà le cas, ça
+        /// ne coûte rien.
+        /// </summary>
+        private async Task ReforcerSuiviSideral(string raison) {
+            try {
+                await Task.Delay(5000);
+                var m = telescopeMediator.GetInfo();
+                if (!m.Connected || m.AtPark) { return; }
+                telescopeMediator.SetTrackingMode(TrackingMode.Sidereal);
+                telescopeMediator.SetTrackingEnabled(true);
+                SuiviRemisTexte = "✔ Suivi sidéral remis en marche (" + raison + ")";
+            } catch (Exception ex) {
+                SuiviRemisTexte = "⚠ Impossible de remettre le suivi : " + ex.Message
+                    + " — faites-le à la main : Équipement > Monture > Sidereal.";
+            }
+            NotifierToutChange();
         }
 
         // ------------------------------------------------------------------
@@ -1361,7 +1419,9 @@ namespace ModeDebutant.AlignementPolaire {
         /// ce qui la laisse partir en roue libre.
         /// </summary>
         private async Task LancerTestCharge(TestCharge.Options options) {
-            if (TestChargeEnCours) { return; }
+            // Le test et la vérification générale partagent le même jeton
+            // d'arrêt : jamais les deux en même temps.
+            if (TestChargeEnCours || VerificationEnCours) { return; }
 
             var monture = telescopeMediator.GetInfo();
             if (!monture.Connected) {

@@ -59,6 +59,15 @@ namespace ModeDebutant.AlignementPolaire {
         public object TargetDistance { get; set; }            // int   : rotation entre photos (°)
         public object MoveRate { get; set; }                  // int   : vitesse de déplacement
         public object EastDirection { get; set; }             // bool  : true = vers l'Est
+
+        // bool : false = NE PAS couper le suivi à la fin de l'alignement.
+        // TPPA l'active par défaut (« Stop tracking when done: True » dans
+        // son journal), ce qui laissait la monture arrêtée après chaque
+        // alignement : étoiles filées, plate solve impossible, centrage
+        // impossible. On ne sait pas si toutes les versions de TPPA lisent
+        // cette option dans le message — d'où le filet de sécurité
+        // ReforcerSuiviSideral côté panneau.
+        public object StopTrackingWhenDone { get; set; }
     }
 
     /// <summary>Demande à TPPA de démarrer sa routine avec nos réglages.</summary>

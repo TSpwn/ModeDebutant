@@ -38,6 +38,10 @@
                 <!-- ═══════════ PHASE 1 : EN ATTENTE ═══════════ -->
                 <StackPanel Visibility="{Binding EnAttente, Converter={StaticResource BoolVersVisibilite}}">
 
+                    <!-- Confirmation : le suivi a été remis après TPPA -->
+                    <TextBlock Text="{Binding SuiviRemisTexte}" FontSize="13" FontWeight="Bold"
+                               Foreground="#81C784" TextWrapping="Wrap" Margin="0,0,0,8" />
+
                     <!-- Avertissement si TPPA n'est pas installé -->
                     <Border Background="#C62828" CornerRadius="6" Padding="10" Margin="0,0,0,10"
                             Visibility="{Binding TppaAbsent, Converter={StaticResource BoolVersVisibilite}}">
