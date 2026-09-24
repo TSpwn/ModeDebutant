@@ -1029,9 +1029,11 @@ namespace ModeDebutant.AlignementPolaire {
             bool termine = total < SeuilParfait || total <= ToleranceArcmin;
 
             // Objectif atteint : TPPA va s'arrêter tout seul… et couper le suivi.
+            // ⚠ Pas tout de suite : il attend une 2e résolution de confirmation
+            // (~10 s). D'où une SURVEILLANCE, pas un réglage unique.
             if (termine && !suiviRemisCetteFois) {
                 suiviRemisCetteFois = true;
-                _ = ReforcerSuiviSideral("objectif atteint");
+                SurveillerSuivi("objectif atteint");
             }
 
             // Les DEUX axes restent lisibles en permanence : on veut voir les
@@ -1272,6 +1274,9 @@ namespace ModeDebutant.AlignementPolaire {
             echecsConsecutifs = 0;
             suiviRemisCetteFois = false;
             SuiviRemisTexte = "";
+            // Pendant les mesures, TPPA fait tourner la monture lui-même :
+            // une surveillance restée active ne doit pas s'en mêler
+            try { surveillanceSuivi?.Cancel(); } catch { }
             demarreLe = DateTime.UtcNow;
             phase = Phase.Mesure;
             NotifierToutChange();
@@ -1310,11 +1315,11 @@ namespace ModeDebutant.AlignementPolaire {
                 Avertissement = "⚠ Impossible de prévenir TPPA : " + ex.Message;
                 NotifierToutChange();
             }
-            // TPPA coupe le suivi quand il s'arrête : on repasse derrière lui
-            if (!suiviRemisCetteFois) {
-                suiviRemisCetteFois = true;
-                _ = ReforcerSuiviSideral("fin de l'alignement");
-            }
+            // TPPA coupe le suivi quand il s'arrête : on repasse derrière lui.
+            // TOUJOURS, même si « objectif atteint » a déjà lancé une
+            // surveillance : le message d'arrêt peut faire recouper le suivi
+            // par TPPA, après que nous l'avons remis.
+            SurveillerSuivi("fin de l'alignement");
         }
 
         // ------------------------------------------------------------------
@@ -1322,6 +1327,10 @@ namespace ModeDebutant.AlignementPolaire {
         // ------------------------------------------------------------------
 
         private bool suiviRemisCetteFois;
+        private CancellationTokenSource surveillanceSuivi;
+
+        // Durée de la surveillance après chaque déclenchement
+        private static readonly TimeSpan DureeSurveillanceSuivi = TimeSpan.FromSeconds(60);
 
         /// <summary>Confirmation affichée quand le suivi a été remis (vide = rien à dire).</summary>
         public string SuiviRemisTexte { get; private set; } = "";
@@ -1331,25 +1340,43 @@ namespace ModeDebutant.AlignementPolaire {
         /// qui coupe le suivi à la fin de l'alignement. Invisible sur le
         /// moment — près du pôle une monture arrêtée ne dérive presque pas —
         /// elle ruinait tout le reste de la nuit dès le premier pointage.
+        /// TPPA 2.2.6.7 IGNORE notre demande StopTrackingWhenDone = false
+        /// (vu le 23 sept 2026 : journal « Stop tracking when done: True »).
         ///
-        /// On demande à TPPA de ne pas le faire, mais on repasse quand même
-        /// derrière lui : après un court délai (le temps qu'il termine son
-        /// propre ménage), on remet le sidéral. Si c'était déjà le cas, ça
-        /// ne coûte rien.
+        /// Première version (22 sept) : remettre le sidéral UNE fois, 5 s
+        /// après la 1re mesure sous la tolérance. Raté : TPPA attend une
+        /// 2e résolution de confirmation et n'a coupé le suivi que ~9 s plus
+        /// tard — APRÈS notre passage. D'où une surveillance : pendant 60 s,
+        /// toutes les 2 s, si le suivi est coupé, on le remet. Peu importe
+        /// quand TPPA le coupe, ou combien de fois.
         /// </summary>
-        private async Task ReforcerSuiviSideral(string raison) {
+        private async void SurveillerSuivi(string raison) {
+            try { surveillanceSuivi?.Cancel(); } catch { }
+            var jeton = new CancellationTokenSource();
+            surveillanceSuivi = jeton;
+            Logger.Info("ModeDebutant : surveillance du suivi apres TPPA (" + raison + ")");
+
+            var fin = DateTime.UtcNow + DureeSurveillanceSuivi;
             try {
-                await Task.Delay(5000);
-                var m = telescopeMediator.GetInfo();
-                if (!m.Connected || m.AtPark) { return; }
-                telescopeMediator.SetTrackingMode(TrackingMode.Sidereal);
-                telescopeMediator.SetTrackingEnabled(true);
-                SuiviRemisTexte = "✔ Suivi sidéral remis en marche (" + raison + ")";
+                while (DateTime.UtcNow < fin) {
+                    await Task.Delay(2000, jeton.Token);
+                    var m = telescopeMediator.GetInfo();
+                    if (!m.Connected || m.AtPark || m.TrackingEnabled) { continue; }
+
+                    telescopeMediator.SetTrackingMode(TrackingMode.Sidereal);
+                    telescopeMediator.SetTrackingEnabled(true);
+                    Logger.Info("ModeDebutant : suivi coupe detecte apres TPPA -> sideral remis (" + raison + ")");
+                    SuiviRemisTexte = "✔ Suivi sidéral remis en marche (TPPA l'avait coupé, " + raison + ")";
+                    NotifierToutChange();
+                }
+            } catch (OperationCanceledException) {
+                // nouvelle surveillance ou nouvel alignement : on s'efface
             } catch (Exception ex) {
+                Logger.Error(ex);
                 SuiviRemisTexte = "⚠ Impossible de remettre le suivi : " + ex.Message
                     + " — faites-le à la main : Équipement > Monture > Sidereal.";
+                NotifierToutChange();
             }
-            NotifierToutChange();
         }
 
         // ------------------------------------------------------------------

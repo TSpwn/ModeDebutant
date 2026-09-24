@@ -64,9 +64,10 @@ namespace ModeDebutant.AlignementPolaire {
         // TPPA l'active par défaut (« Stop tracking when done: True » dans
         // son journal), ce qui laissait la monture arrêtée après chaque
         // alignement : étoiles filées, plate solve impossible, centrage
-        // impossible. On ne sait pas si toutes les versions de TPPA lisent
-        // cette option dans le message — d'où le filet de sécurité
-        // ReforcerSuiviSideral côté panneau.
+        // impossible. ⚠ TPPA 2.2.6.7 IGNORE cette option dans le message
+        // (vérifié le 23 sept 2026 : « True » au journal malgré false ici).
+        // Gardée pour les versions futures ; la vraie protection est la
+        // surveillance SurveillerSuivi côté panneau.
         public object StopTrackingWhenDone { get; set; }
     }
 
