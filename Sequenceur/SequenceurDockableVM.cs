@@ -1257,10 +1257,14 @@ namespace ModeDebutant.Sequenceur {
             // 3. Refroidir, en descendant progressivement (SVBONY recommande
             //    au moins 3 minutes ; on en met 5). La consigne doit être la
             //    MÊME que celle de vos darks, sinon ils ne correspondent plus.
+            //    SANS ATTENDRE (choix de l'utilisateur, 23 sept 2026) : l'instruction
+            //    CoolCamera bloquait la série jusqu'à la consigne. Le refroidissement
+            //    part maintenant en parallèle (RefroidirEnFond) et les photos
+            //    commencent tout de suite ; les premières sont un peu plus chaudes.
+            double? consigneRefroidissement = null;
             if (RefroidirActif && camera.Connected) {
-                double consigne = DoubleOuDefaut(TemperatureCibleTexte, -10);
-                zoneDebut.Add(new CoolCamera(cameraMediator) { Temperature = consigne, Duration = 5 });
-                notes += "Refroidissement à " + consigne.ToString("0") + " °C · ";
+                consigneRefroidissement = DoubleOuDefaut(TemperatureCibleTexte, -10);
+                notes += "Refroidissement à " + consigneRefroidissement.Value.ToString("0") + " °C (sans attendre) · ";
             }
 
             // La "cible" : porte le nom de l'objet (pour les noms de fichiers
@@ -1452,10 +1456,32 @@ namespace ModeDebutant.Sequenceur {
                 // par la nôtre, puis on la démarre. L'attente dure toute la
                 // série : la ligne suivante ne rend la main qu'à la fin.
                 sequenceMediator.SetAdvancedSequence(racine);
+                if (consigneRefroidissement.HasValue) { RefroidirEnFond(consigneRefroidissement.Value); }
                 await sequenceMediator.StartAdvancedSequence(false);
                 TerminerSerie(null);
             } catch (Exception ex) {
                 TerminerSerie(ex);
+            }
+        }
+
+        private CancellationTokenSource refroidissementArret;
+
+        /// <summary>
+        /// Refroidit la caméra en parallèle de la série : descente progressive
+        /// sur 5 min (SVBONY recommande au moins 3), puis N.I.N.A. maintient la
+        /// consigne. S'il ne l'atteint pas (nuit chaude, Peltier non alimenté),
+        /// N.I.N.A. abandonne seul après ~2 min sans progrès : la série, elle,
+        /// n'est jamais bloquée.
+        /// </summary>
+        private async void RefroidirEnFond(double consigne) {
+            try { refroidissementArret?.Cancel(); } catch { }
+            refroidissementArret = new CancellationTokenSource();
+            try {
+                await cameraMediator.CoolCamera(consigne, TimeSpan.FromMinutes(5),
+                    new Progress<NINA.Core.Model.ApplicationStatus>(), refroidissementArret.Token);
+            } catch (Exception ex) {
+                // async void : rien ne doit remonter jusqu'à N.I.N.A.
+                Logger.Error(ex);
             }
         }
 
@@ -1665,6 +1691,7 @@ namespace ModeDebutant.Sequenceur {
         private async void RechaufferSiDiffere() {
             if (!rechauffementDiffere) { return; }
             rechauffementDiffere = false;
+            try { refroidissementArret?.Cancel(); } catch { }
             try {
                 if (!cameraMediator.GetInfo().Connected) { return; }
                 rechauffementArret = new CancellationTokenSource();
