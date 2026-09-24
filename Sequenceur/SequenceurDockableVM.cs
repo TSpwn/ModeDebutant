@@ -198,6 +198,11 @@ namespace ModeDebutant.Sequenceur {
             DemarrerCommand = new CommandeAsync(Demarrer);
             ArreterCommand = new CommandeSimple2(Arreter);
             NouvelleSerieCommand = new CommandeSimple2(NouvelleSerie);
+            MoinsDixCommand = new CommandeSimple2(() => AjusterPhotos(-10));
+            MoinsUnCommand = new CommandeSimple2(() => AjusterPhotos(-1));
+            PlusUnCommand = new CommandeSimple2(() => AjusterPhotos(+1));
+            PlusDixCommand = new CommandeSimple2(() => AjusterPhotos(+10));
+            FinirApresCommand = new CommandeSimple2(() => AjusterPhotos(0, finirApres: true));
             VoirSequenceurCommand = new CommandeSimple2(VoirSequenceur);
             LancerDarksCommand = new CommandeAsync(LancerDarks);
             PasserDarksCommand = new CommandeSimple2(PasserDarks);
@@ -1017,6 +1022,13 @@ namespace ModeDebutant.Sequenceur {
             set { reglages.SetValueString(nameof(DeriveMaxTexte), value); RaisePropertyChanged(); }
         }
 
+        /// <summary>Contrôle de dérive toutes les N photos (défaut 10). N.I.N.A.
+        /// résout la photo déjà enregistrée, en fond : aucune pose en plus.</summary>
+        public string DeriveFrequenceTexte {
+            get => reglages.GetValueString(nameof(DeriveFrequenceTexte), "10");
+            set { reglages.SetValueString(nameof(DeriveFrequenceTexte), value); RaisePropertyChanged(); }
+        }
+
         /// <summary>Proposer les darks à la fin de la série de photos.</summary>
         public bool DarksActif {
             get => reglages.GetValueBoolean(nameof(DarksActif), false);
@@ -1393,9 +1405,11 @@ namespace ModeDebutant.Sequenceur {
                 conteneurCible.Add(new CenterAfterDriftTrigger(profileService, telescopeMediator,
                     filterWheelMediator, guiderMediator, imagingMediator, cameraMediator,
                     domeMediator, domeFollower, imageSaveMediator, applicationStatusMediator) {
-                    DistanceArcMinutes = deriveMax
+                    DistanceArcMinutes = deriveMax,
+                    AfterExposures = EntierOuDefaut(DeriveFrequenceTexte, 10)
                 });
-                notes += "Recentrage au-delà de " + deriveMax.ToString("0.#") + "′ · ";
+                notes += "Contrôle de dérive toutes les " + EntierOuDefaut(DeriveFrequenceTexte, 10)
+                    + " photos, recentrage au-delà de " + deriveMax.ToString("0.#") + "′ · ";
             }
 
             // ---- Zone de fin : ce qu'on fait APRÈS la dernière photo ----
@@ -1954,6 +1968,29 @@ namespace ModeDebutant.Sequenceur {
             } catch (Exception ex) {
                 TerminerSerie(ex);
             }
+        }
+
+        public ICommand MoinsDixCommand { get; }
+        public ICommand MoinsUnCommand { get; }
+        public ICommand PlusUnCommand { get; }
+        public ICommand PlusDixCommand { get; }
+        public ICommand FinirApresCommand { get; }
+
+        /// <summary>
+        /// Change le nombre de photos EN COURS de série : la boucle de
+        /// N.I.N.A. relit Iterations avant chaque photo. Plancher = la photo
+        /// en cours (jamais interrompue). Réduire au plancher = « finir après
+        /// celle-ci » : la série se termine proprement, darks compris.
+        /// </summary>
+        private void AjusterPhotos(int delta, bool finirApres = false) {
+            if (phase != Phase.EnCours || boucle == null) { return; }
+            int plancher = PhotosFaites + 1;
+            int nouveau = finirApres ? plancher : Math.Max(plancher, nbPhotosTotal + delta);
+            boucle.Iterations = nouveau;
+            nbPhotosTotal = nouveau;
+            RaisePropertyChanged(nameof(NbPhotosTotal));
+            RaisePropertyChanged(nameof(ProgressionTexte));
+            RaisePropertyChanged(nameof(TempsRestantTexte));
         }
 
         private void NouvelleSerie() {
