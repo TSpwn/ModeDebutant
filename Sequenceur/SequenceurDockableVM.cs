@@ -1230,9 +1230,18 @@ namespace ModeDebutant.Sequenceur {
             //    nuit entière peut partir en 8 bits sans le moindre message.
             //    Cette instruction officielle le repose explicitement.
             var modeVoulu = profileService.ActiveProfile.CameraSettings.ReadoutModeForNormalImages;
+            //    ⚠ Seulement si la caméra connaît ce mode : un profil hérité
+            //    d'une autre caméra (vu le 23 sept 2026 : mode 2 dans le
+            //    profil, la SV405CC n'a que le mode 0) déclenchait l'alerte
+            //    « Readout mode not supported » de N.I.N.A. à chaque série.
+            int nbModes = camera.ReadoutModes?.Count() ?? 0;
             if (ModeLectureActif && camera.Connected && modeVoulu.HasValue) {
-                zoneDebut.Add(new SetReadoutMode(cameraMediator) { Mode = modeVoulu.Value });
-                notes += "Mode de lecture reposé · ";
+                if (modeVoulu.Value >= 0 && modeVoulu.Value < nbModes) {
+                    zoneDebut.Add(new SetReadoutMode(cameraMediator) { Mode = modeVoulu.Value });
+                    notes += "Mode de lecture reposé · ";
+                } else {
+                    notes += "Mode de lecture n° " + modeVoulu.Value + " du profil absent de la caméra, ignoré · ";
+                }
             }
 
             // 2. Déparquer la monture : parquée, elle refuse de bouger et tout
