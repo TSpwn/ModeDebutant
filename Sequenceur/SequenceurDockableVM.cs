@@ -1012,15 +1012,31 @@ namespace ModeDebutant.Sequenceur {
 
         /// <summary>Recentrer automatiquement si la monture dérive.</summary>
         public bool RecentrageDeriveActif {
-            get => reglages.GetValueBoolean(nameof(RecentrageDeriveActif), false);
+            // Actif par défaut : sans autoguidage (le cas de l'utilisateur),
+            // c'est ce qui garde la cible dans le cadre sur une longue série
+            get => reglages.GetValueBoolean(nameof(RecentrageDeriveActif), true);
             set { reglages.SetValueBoolean(nameof(RecentrageDeriveActif), value); RaisePropertyChanged(); }
         }
 
-        /// <summary>Dérive tolérée avant recentrage, en minutes d'arc (défaut 10).</summary>
+        /// <summary>Dérive tolérée avant recentrage, en minutes d'arc (défaut 15 :
+        /// ~120 px au 135 mm, champ de 8,6° — assez pour ne pas recentrer pour rien).</summary>
         public string DeriveMaxTexte {
-            get => reglages.GetValueString(nameof(DeriveMaxTexte), "10");
+            get => reglages.GetValueString(nameof(DeriveMaxTexte), "15");
             set { reglages.SetValueString(nameof(DeriveMaxTexte), value); RaisePropertyChanged(); }
         }
+
+        /// <summary>
+        /// Seuil d'ALERTE, en minutes d'arc (défaut 60). Au-delà, ce n'est plus
+        /// une dérive normale mais un problème : suivi arrêté, monture qui a
+        /// glissé, câble accroché. Alerte urgente sur le téléphone.
+        /// </summary>
+        public string DeriveAlerteTexte {
+            get => reglages.GetValueString(nameof(DeriveAlerteTexte), "60");
+            set { reglages.SetValueString(nameof(DeriveAlerteTexte), value); RaisePropertyChanged(); }
+        }
+
+        /// <summary>Dernière dérive mesurée pendant la série (vide = pas encore mesurée).</summary>
+        public string DeriveMesureeTexte { get; private set; } = "";
 
         /// <summary>Contrôle de dérive toutes les N photos (défaut 10). N.I.N.A.
         /// résout la photo déjà enregistrée, en fond : aucune pose en plus.</summary>
@@ -1400,14 +1416,19 @@ namespace ModeDebutant.Sequenceur {
             // s'échappe lentement du cadre. Ce déclencheur mesure l'écart par
             // astrométrie et recentre au-delà du seuil. C'est ce qui sauve une
             // longue série non guidée.
+            if (declencheurDerive != null) { declencheurDerive.PropertyChanged -= QuandDeriveMesuree; declencheurDerive = null; }
+            DeriveMesureeTexte = "";
+            deriveAlerteEnvoyee = false;
             if (RecentrageDeriveActif && monture.Connected && CibleChoisie != null) {
-                double deriveMax = DoubleOuDefaut(DeriveMaxTexte, 10);
-                conteneurCible.Add(new CenterAfterDriftTrigger(profileService, telescopeMediator,
+                double deriveMax = DoubleOuDefaut(DeriveMaxTexte, 15);
+                declencheurDerive = new CenterAfterDriftTrigger(profileService, telescopeMediator,
                     filterWheelMediator, guiderMediator, imagingMediator, cameraMediator,
                     domeMediator, domeFollower, imageSaveMediator, applicationStatusMediator) {
                     DistanceArcMinutes = deriveMax,
                     AfterExposures = EntierOuDefaut(DeriveFrequenceTexte, 10)
-                });
+                };
+                declencheurDerive.PropertyChanged += QuandDeriveMesuree;
+                conteneurCible.Add(declencheurDerive);
                 notes += "Contrôle de dérive toutes les " + EntierOuDefaut(DeriveFrequenceTexte, 10)
                     + " photos, recentrage au-delà de " + deriveMax.ToString("0.#") + "′ · ";
             }
@@ -1968,6 +1989,37 @@ namespace ModeDebutant.Sequenceur {
             } catch (Exception ex) {
                 TerminerSerie(ex);
             }
+        }
+
+        private CenterAfterDriftTrigger declencheurDerive;
+        private bool deriveAlerteEnvoyee;
+
+        /// <summary>
+        /// À chaque contrôle, N.I.N.A. publie la dérive mesurée
+        /// (LastDistanceArcMinutes). On l'affiche, et au-delà du seuil
+        /// d'alerte on prévient le téléphone (une fois par série) : une dérive
+        /// pareille, c'est un suivi arrêté ou une monture qui a bougé.
+        /// </summary>
+        private void QuandDeriveMesuree(object sender, PropertyChangedEventArgs e) {
+            if (e.PropertyName != nameof(CenterAfterDriftTrigger.LastDistanceArcMinutes) || declencheurDerive == null) { return; }
+            try {
+                double d = declencheurDerive.LastDistanceArcMinutes;
+                if (double.IsNaN(d) || d < 0) { return; }
+                double seuil = DoubleOuDefaut(DeriveMaxTexte, 15);
+                double alerte = DoubleOuDefaut(DeriveAlerteTexte, 60);
+
+                DeriveMesureeTexte = "🎯 Dérive mesurée : " + d.ToString("0.0") + "′ à " + DateTime.Now.ToString("HH\\hmm")
+                    + (d >= alerte ? "  ❌ ANORMAL (suivi arrêté ? monture qui a bougé ?)"
+                       : d >= seuil ? "  → recentrage" : "  ✅");
+                RaisePropertyChanged(nameof(DeriveMesureeTexte));
+
+                if (d >= alerte && !deriveAlerteEnvoyee) {
+                    deriveAlerteEnvoyee = true;
+                    EnvoyerAlerte("Derive anormale",
+                        "❌ La cible a dérivé de " + d.ToString("0") + "′ (seuil d'alerte " + alerte.ToString("0")
+                        + "′). Ce n'est pas une dérive normale : suivi arrêté, monture qui a glissé, câble accroché ? N.I.N.A. tente de recentrer.", true);
+                }
+            } catch { /* l'affichage de la dérive est un bonus */ }
         }
 
         public ICommand MoinsDixCommand { get; }
