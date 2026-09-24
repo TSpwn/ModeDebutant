@@ -873,7 +873,7 @@ namespace ModeDebutant.Sequenceur {
                     var conteneur = new DeepSkyObjectContainer(profileService, nighttimeCalculator, framingAssistantVM,
                         applicationMediator, planetariumFactory, cameraMediator, filterWheelMediator);
                     conteneur.Name = CibleChoisie.Nom;
-                    conteneur.Target.TargetName = CibleChoisie.Nom;
+                    conteneur.Target.TargetName = CibleChoisie.NomCatalogue;
                     conteneur.Target.InputCoordinates.Coordinates = CibleChoisie.Coordonnees;
 
                     // Le centrage photographie le ciel : sans suivi les étoiles
@@ -1301,7 +1301,7 @@ namespace ModeDebutant.Sequenceur {
                 applicationMediator, planetariumFactory, cameraMediator, filterWheelMediator);
             if (CibleChoisie != null) {
                 conteneurCible.Name = CibleChoisie.Nom;
-                conteneurCible.Target.TargetName = CibleChoisie.Nom;
+                conteneurCible.Target.TargetName = CibleChoisie.NomCatalogue;
                 conteneurCible.Target.InputCoordinates.Coordinates = CibleChoisie.Coordonnees;
             } else {
                 // Pas de cible choisie : on photographie là où pointe le
@@ -1914,10 +1914,16 @@ namespace ModeDebutant.Sequenceur {
                 }
 
                 html.Append("<h2>🧑‍🍳 Et maintenant : l'empilement (Siril)</h2><div class='carte'>");
-                html.Append("<p>1. Installez <b>Siril</b> (gratuit) · 2. Onglet <i>Scripts</i> → <i>OSC_Preprocessing</i> "
-                    + "· 3. Rangez vos fichiers dans des dossiers <code>lights</code>" + (nbDarks > 0 ? ", <code>darks</code>" : "")
-                    + " comme demandé par le script · 4. Lancez, patientez, admirez.</p>");
-                html.Append("<p style='opacity:.6;font-size:13px'>Vos fichiers de cette nuit : <code>" + Proprifier(dossier) + "</code> (les DARK sont marqués dans le nom de fichier).</p>");
+                // Le dossier de LA NUIT, tel que N.I.N.A. le nomme ($$DATEMINUS12$$ :
+                // une nuit qui passe minuit garde la date de la veille)
+                var dossierNuit = System.IO.Path.Combine(dossier, serieDebut.AddHours(-12).ToString("yyyy-MM-dd"));
+                html.Append("<p>1. Copiez le dossier de la nuit <code>" + Proprifier(dossierNuit) + "</code> tel quel "
+                    + "(LIGHT" + (nbDarks > 0 ? ", DARK" : "") + "…) · 2. Dans Siril : <i>Scripts</i> → <i>Scripts Python</i> → "
+                    + "<b>OSC_Studio</b> · 3. Choisissez ce dossier : les cibles sont trouvées toutes seules · "
+                    + "4. Lancez, patientez, admirez.</p>");
+                html.Append("<p style='opacity:.6;font-size:13px'>Pas de darks cette nuit ? OSC Studio prend ceux de sa "
+                    + "bibliothèque s'ils ont les mêmes réglages. Des flats en fin de nuit (sans toucher à la mise au point) "
+                    + "corrigeraient le vignettage.</p>");
                 html.Append("</div></body></html>");
 
                 // Nom de fichier propre : « Bilan 2026-07-19 M 31.html »
@@ -2293,6 +2299,7 @@ namespace ModeDebutant.Sequenceur {
             // Le nom principal + le premier surnom connu (ex : M 31 possède
             // aussi le nom « Andromeda Galaxy »)
             Nom = objet.Name;
+            NomCatalogue = objet.Name;
             var surnoms = objet.AlsoKnownAs;
             if (surnoms != null) {
                 foreach (var surnom in surnoms) {
@@ -2326,6 +2333,13 @@ namespace ModeDebutant.Sequenceur {
 
         /// <summary>Nom lisible : « M 31 — Andromeda Galaxy ».</summary>
         public string Nom { get; }
+
+        /// <summary>
+        /// Nom de catalogue seul : « M 31 ». C'est lui qui part dans les
+        /// fichiers (mot-clé FITS OBJECT, lu par OSC Studio sous Siril) : le
+        /// tiret de « M 81 — Bode's Galaxy » y devenait « ? » (FITS = ASCII).
+        /// </summary>
+        public string NomCatalogue { get; }
 
         /// <summary>La ligne affichée dans la liste des résultats.</summary>
         public string Description { get; }
